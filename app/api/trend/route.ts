@@ -56,6 +56,20 @@ export async function GET(req: Request) {
     source,
     peakMonths,
     series,
-    ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote } } : {}),
+    ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote, keyInfo: keyDiagnostics() } } : {}),
   });
+}
+
+// 키 값 자체는 노출하지 않고, 길이/공백 여부만 진단용으로 반환.
+function keyDiagnostics() {
+  const id = process.env.NAVER_CLIENT_ID ?? '';
+  const secret = process.env.NAVER_CLIENT_SECRET ?? '';
+  return {
+    idLen: id.length,
+    secretLen: secret.length,
+    idHasWhitespace: id !== id.trim(),
+    secretHasWhitespace: secret !== secret.trim(),
+    idHead: id.slice(0, 2),
+    secretHead: secret.slice(0, 2),
+  };
 }
