@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getFruit, MONTHS, detectPeakMonths } from '@/lib/fruits';
-import { fetchKeywordTrend, hasNaverKeys } from '@/lib/naver';
+import { fetchSearchTrend, hasNaverKeys } from '@/lib/naver';
 
-// GET /api/trend?fruit=watermelon
-// 응답: { name, source, peakMonths, series: [{ month, ratio }] }
+// GET /api/trend?fruit=watermelon[&debug=1]
+// 응답: { name, source, peakMonths, series: [{ month, ratio }], debug? }
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const fruitId = searchParams.get('fruit') ?? 'watermelon';
+  const debug = searchParams.get('debug');
   const fruit = getFruit(fruitId);
 
   if (!fruit) {
@@ -15,29 +16,46 @@ export async function GET(req: Request) {
 
   let ratios = fruit.sample;
   let source: 'naver' | 'sample' = 'sample';
+  let apiNote: string | null = null;
 
   if (hasNaverKeys()) {
     try {
-      const trend = await fetchKeywordTrend(fruit.category, fruit.name);
+      const trend = await fetchSearchTrend(fruit.name);
       if (trend && trend.length > 0) {
-        // 네이버는 월 순서대로 12개를 주므로 ratio만 추출.
+        // 검색어 트렌드는 월 순서대로 데이터를 주므로 ratio만 추출.
         // 라벨은 응답의 period(YYYY-MM)에서 월을 뽑아 맞춘다.
-        ratios = trend.map((t) => t.ratio);
-        source = 'naver';
         const series = trend.map((t) => ({
           month: `${Number(t.month.slice(5, 7))}월`,
           ratio: Math.round(t.ratio),
         }));
-        const peakMonths = detectPeakMonths(ratios).map((i) => series[i].month);
-        return NextResponse.json({ name: fruit.name, source, peakMonths, series });
+        const peakMonths = detectPeakMonths(series.map((s) => s.ratio)).map(
+          (i) => series[i].month,
+        );
+        return NextResponse.json({
+          name: fruit.name,
+          source: 'naver',
+          peakMonths,
+          series,
+          ...(debug ? { debug: { hasKeys: true, apiNote: 'ok' } } : {}),
+        });
       }
+      apiNote = 'naver returned empty data';
     } catch (e) {
-      // API 실패 시 샘플로 폴백 (운영 중 키 만료/한도초과 대비)
-      console.error('[trend] naver fallback:', e);
+      // API 실패 시 샘플로 폴백 (키 만료/한도초과/요청오류 대비)
+      apiNote = e instanceof Error ? e.message : String(e);
+      console.error('[trend] naver fallback:', apiNote);
     }
+  } else {
+    apiNote = 'no naver keys in this environment';
   }
 
   const series = MONTHS.map((m, i) => ({ month: m, ratio: ratios[i] }));
   const peakMonths = detectPeakMonths(ratios).map((i) => MONTHS[i]);
-  return NextResponse.json({ name: fruit.name, source, peakMonths, series });
+  return NextResponse.json({
+    name: fruit.name,
+    source,
+    peakMonths,
+    series,
+    ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote } } : {}),
+  });
 }
