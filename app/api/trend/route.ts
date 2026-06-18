@@ -69,7 +69,5 @@ function keyDiagnostics() {
     secretLen: secret.length,
     idHasWhitespace: id !== id.trim(),
     secretHasWhitespace: secret !== secret.trim(),
-    idHead: id.slice(0, 2),
-    secretHead: secret.slice(0, 2),
   };
 }
