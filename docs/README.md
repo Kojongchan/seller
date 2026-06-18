@@ -24,13 +24,16 @@
 
 - **라이브:** https://chan-seller.vercel.app  (Vercel, 프로덕션 브랜치 = `main`)
 - **스택:** Next.js(App Router) + TypeScript + Recharts, Vercel 자동배포
-- **구현됨 (MVP + Phase 1):**
-  - 과일 16종 월별 검색 트렌드 차트
-  - "이번 달 추천 TOP 3" 카드 (※ 아직 샘플 데이터 기반)
-  - **네이버 데이터랩 검색어트렌드 API 실데이터 연동 완료** (`/api/trend?fruit=...`)
-  - 진단용: `/api/trend?fruit=watermelon&debug=1`
+- **구현됨 (MVP + Phase 1 + E1-1 1a):**
+  - **🆕 키워드 분석기(E1-1 1a) — 임의 과일·키워드 분석** (PR #5, 2026-06-18 머지)
+    - 메인(`/`) = 검색 진입점(큰 검색창 + 16종 빠른-예시 칩 + 추천 TOP3 미리보기)
+    - 분석 상세(`/analyze?q=<키워드>`): 2년 추이 차트·시즌 피크/D-day·**임시등급 S~D**(`경쟁 반영 전`)·세분류 비교(자동+수동)·쿠팡 딥링크
+    - API `/api/trend?q=<키워드>`로 확장(구버전 `?fruit=` 호환). 24개월 트렌드 + 피크·등급 응답. 키 없음/실패 시 16종 샘플 폴백, 그 외 키워드는 안내
+    - `lib/grade.ts` 순수 산식 + 단위 테스트(`npm test`)
+  - 과일 16종 월별 검색 트렌드 + "이번 달 추천 TOP 3"(※ 샘플 기반 미리보기)
+  - **네이버 데이터랩 검색어트렌드 API 실데이터 연동** · 진단용 `?debug=1`
 - **환경변수(Vercel, Production+Preview):** `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`
-- **다음 작업:** Epic E1 — 키워드/소싱 고도화 (PLAN.md 참고)
+- **다음 작업:** E1-1 **1b**(쿠팡 경쟁상품수 → '경쟁 대비 기회' 등급) 또는 E1-2(모음집/TOP) — PLAN.md 참고
 
 자세한 기술 현황은 `ARCHITECTURE.md`.
 
