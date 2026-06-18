@@ -1,14 +1,17 @@
-// 네이버 데이터랩 쇼핑인사이트 API 클라이언트.
-// 문서: https://developers.naver.com/docs/serviceapi/datalab/shopping/shopping.md
+// 네이버 데이터랩 검색어 트렌드 API 클라이언트.
+// 문서: https://developers.naver.com/docs/serviceapi/datalab/search/search.md
 //
+// 카테고리 코드가 필요한 '쇼핑인사이트' 대신, 키워드만으로 동작하는
+// '검색어 트렌드' 엔드포인트를 사용합니다. (카테고리 코드 오류로 인한 실패 방지)
 // 키워드별 월간 상대 검색 지수(0~100)를 반환합니다.
+//
 // NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 가 없으면 null을 반환하고,
 // 호출 측에서 샘플 데이터로 폴백합니다.
 
-const ENDPOINT = 'https://openapi.naver.com/v1/datalab/shopping/category/keywords';
+const ENDPOINT = 'https://openapi.naver.com/v1/datalab/search';
 
 export interface MonthlyTrend {
-  month: string; // 'YYYY-MM-01'
+  month: string; // 'YYYY-MM-DD'
   ratio: number; // 0~100
 }
 
@@ -25,10 +28,9 @@ function lastTwelveMonthsRange(): { startDate: string; endDate: string } {
   return { startDate: fmt(start), endDate: fmt(end) };
 }
 
-export async function fetchKeywordTrend(
-  category: string,
-  keyword: string,
-): Promise<MonthlyTrend[] | null> {
+// 검색어 트렌드 API로 월별 상대 검색 지수를 가져온다.
+// 실패 시 throw → 호출 측에서 잡아 샘플로 폴백.
+export async function fetchSearchTrend(keyword: string): Promise<MonthlyTrend[] | null> {
   if (!hasNaverKeys()) return null;
 
   const { startDate, endDate } = lastTwelveMonthsRange();
@@ -36,8 +38,7 @@ export async function fetchKeywordTrend(
     startDate,
     endDate,
     timeUnit: 'month',
-    category,
-    keyword: [{ name: keyword, param: [keyword] }],
+    keywordGroups: [{ groupName: keyword, keywords: [keyword] }],
   };
 
   const res = await fetch(ENDPOINT, {
