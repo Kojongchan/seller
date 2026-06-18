@@ -1,61 +1,168 @@
 import { NextResponse } from 'next/server';
-import { getFruit, MONTHS, detectPeakMonths } from '@/lib/fruits';
+import { getFruit, type Fruit } from '@/lib/fruits';
 import { fetchSearchTrend, hasNaverKeys } from '@/lib/naver';
+import { resolveKeyword } from '@/lib/keywords';
+import {
+  computePeakForecast,
+  computeYoyTrend,
+  gradeFromTrend,
+  seasonalProfile,
+  type TrendPoint,
+} from '@/lib/grade';
 
-// GET /api/trend?fruit=watermelon[&debug=1]
-// 응답: { name, source, peakMonths, series: [{ month, ratio }], debug? }
+// GET /api/trend?q=<키워드>            (권장: 임의 키워드 분석)
+// GET /api/trend?fruit=<id>            (구버전 호환: 과일 id)
+//     &debug=1
+//
+// 응답:
+// { query, name, source: 'naver'|'sample'|'none', message?,
+//   series: [{ period, label, ratio, monthIndex }],
+//   peakMonths: string[], summary, forecast, grade, debug? }
+
+const MONTH_LABELS = [
+  '1월', '2월', '3월', '4월', '5월', '6월',
+  '7월', '8월', '9월', '10월', '11월', '12월',
+];
+
+// 'YYYY-MM' 라벨/인덱스를 단일 시리즈 포인트로 가공.
+interface SeriesPoint {
+  period: string; // 'YYYY-MM'
+  label: string; // "24.6"
+  ratio: number; // 0~100
+  monthIndex: number; // 0~11
+}
+
+function toSeriesPoint(period: string, ratio: number): SeriesPoint {
+  const year = Number(period.slice(0, 4));
+  const monthIndex = Number(period.slice(5, 7)) - 1;
+  return {
+    period: period.slice(0, 7),
+    label: `${String(year).slice(2)}.${monthIndex + 1}`,
+    ratio: Math.round(ratio),
+    monthIndex,
+  };
+}
+
+// 이번 달 포함, 최근 count개월의 'YYYY-MM' 목록(오름차순).
+function recentMonths(count: number, now = new Date()): string[] {
+  const out: string[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+// 샘플(달력 12값) → 최근 24개월 period 시리즈로 확장.
+function sampleSeries(fruit: Fruit, now = new Date()): SeriesPoint[] {
+  return recentMonths(24, now).map((period) => {
+    const monthIndex = Number(period.slice(5, 7)) - 1;
+    return toSeriesPoint(period, fruit.sample[monthIndex]);
+  });
+}
+
+// 시즌 프로파일에서 피크(최댓값의 70% 이상) 달력월 라벨 추출.
+function peakMonthLabels(series: SeriesPoint[]): string[] {
+  const profile = seasonalProfile(series as TrendPoint[]);
+  const max = Math.max(...profile);
+  if (max <= 0) return [];
+  const threshold = max * 0.7;
+  return profile
+    .map((v, i) => (v >= threshold ? MONTH_LABELS[i] : null))
+    .filter((v): v is string => v !== null);
+}
+
+function analysisPayload(series: SeriesPoint[], now: Date) {
+  const points = series as TrendPoint[];
+  const forecast = computePeakForecast(points, now);
+  const yoy = computeYoyTrend(points);
+  const grade = gradeFromTrend(points, now);
+  const current = series.length ? series[series.length - 1] : null;
+  return {
+    series,
+    peakMonths: peakMonthLabels(series),
+    summary: {
+      currentIndex: current ? current.ratio : 0,
+      currentPeriod: current ? current.period : null,
+      yoy,
+    },
+    forecast,
+    grade,
+  };
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const fruitId = searchParams.get('fruit') ?? 'watermelon';
   const debug = searchParams.get('debug');
-  const fruit = getFruit(fruitId);
+  const now = new Date();
 
-  if (!fruit) {
-    return NextResponse.json({ error: 'unknown fruit' }, { status: 400 });
+  // q 우선, 없으면 구버전 fruit, 둘 다 없으면 기본값.
+  const q = searchParams.get('q');
+  const fruitParam = searchParams.get('fruit');
+  const rawQuery = (q ?? fruitParam ?? 'watermelon').trim();
+
+  if (!rawQuery) {
+    return NextResponse.json({ error: 'empty query' }, { status: 400 });
   }
 
-  let ratios = fruit.sample;
-  let source: 'naver' | 'sample' = 'sample';
-  let apiNote: string | null = null;
+  const { keyword, fruit } = resolveKeyword(rawQuery);
 
+  // 1) 네이버 실데이터 시도
   if (hasNaverKeys()) {
     try {
-      const trend = await fetchSearchTrend(fruit.name);
+      const trend = await fetchSearchTrend(keyword);
       if (trend && trend.length > 0) {
-        // 검색어 트렌드는 월 순서대로 데이터를 주므로 ratio만 추출.
-        // 라벨은 응답의 period(YYYY-MM)에서 월을 뽑아 맞춘다.
-        const series = trend.map((t) => ({
-          month: `${Number(t.month.slice(5, 7))}월`,
-          ratio: Math.round(t.ratio),
-        }));
-        const peakMonths = detectPeakMonths(series.map((s) => s.ratio)).map(
-          (i) => series[i].month,
-        );
+        const series = trend.map((t) => toSeriesPoint(t.month, t.ratio));
         return NextResponse.json({
-          name: fruit.name,
+          query: keyword,
+          name: keyword,
           source: 'naver',
-          peakMonths,
-          series,
-          ...(debug ? { debug: { hasKeys: true, apiNote: 'ok' } } : {}),
+          ...analysisPayload(series, now),
+          ...(debug ? { debug: { hasKeys: true, apiNote: 'ok', points: series.length } } : {}),
         });
       }
-      apiNote = 'naver returned empty data';
+      // 빈 응답 → 폴백으로 진행
+      return fallback(keyword, fruit, now, debug, 'naver returned empty data');
     } catch (e) {
-      // API 실패 시 샘플로 폴백 (키 만료/한도초과/요청오류 대비)
-      apiNote = e instanceof Error ? e.message : String(e);
+      const apiNote = e instanceof Error ? e.message : String(e);
       console.error('[trend] naver fallback:', apiNote);
+      return fallback(keyword, fruit, now, debug, apiNote);
     }
-  } else {
-    apiNote = 'no naver keys in this environment';
   }
 
-  const series = MONTHS.map((m, i) => ({ month: m, ratio: ratios[i] }));
-  const peakMonths = detectPeakMonths(ratios).map((i) => MONTHS[i]);
+  return fallback(keyword, fruit, now, debug, 'no naver keys in this environment');
+}
+
+// 폴백: 16종이면 샘플, 그 외 임의 키워드는 안내 메시지.
+function fallback(
+  keyword: string,
+  fruit: Fruit | null,
+  now: Date,
+  debug: string | null,
+  apiNote: string,
+) {
+  if (fruit) {
+    const series = sampleSeries(fruit, now);
+    return NextResponse.json({
+      query: keyword,
+      name: fruit.name,
+      source: 'sample',
+      ...analysisPayload(series, now),
+      ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote, keyInfo: keyDiagnostics(), sampleFruit: fruit.id } } : {}),
+    });
+  }
+
+  // 샘플조차 없는 임의 키워드 → 데이터 없음 안내
   return NextResponse.json({
-    name: fruit.name,
-    source,
-    peakMonths,
-    series,
+    query: keyword,
+    name: keyword,
+    source: 'none',
+    message: '네이버 검색어트렌드 키가 없어 실데이터를 불러올 수 없습니다. 샘플은 16개 대표 과일에만 제공됩니다. 키 연결 시 임의 키워드도 분석됩니다.',
+    series: [],
+    peakMonths: [],
+    summary: { currentIndex: 0, currentPeriod: null, yoy: { direction: 'flat', current: 0, lastYear: null, deltaPct: null } },
+    forecast: null,
+    grade: null,
     ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote, keyInfo: keyDiagnostics() } } : {}),
   });
 }

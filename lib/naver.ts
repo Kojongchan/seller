@@ -19,11 +19,12 @@ export function hasNaverKeys(): boolean {
   return Boolean(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET);
 }
 
-// 최근 12개월(전월까지)의 시작/종료일 문자열을 만든다.
-function lastTwelveMonthsRange(): { startDate: string; endDate: string } {
+// 최근 24개월(이번 달 포함)의 시작/종료일 문자열을 만든다.
+// 네이버 검색어트렌드는 2016-01-01 이후 데이터를 제공하므로 24개월은 항상 범위 내.
+function lastTwentyFourMonthsRange(): { startDate: string; endDate: string } {
   const now = new Date();
   const end = new Date(now.getFullYear(), now.getMonth(), 1); // 이번 달 1일
-  const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const start = new Date(now.getFullYear(), now.getMonth() - 23, 1); // 23개월 전 1일
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   return { startDate: fmt(start), endDate: fmt(end) };
 }
@@ -33,7 +34,7 @@ function lastTwelveMonthsRange(): { startDate: string; endDate: string } {
 export async function fetchSearchTrend(keyword: string): Promise<MonthlyTrend[] | null> {
   if (!hasNaverKeys()) return null;
 
-  const { startDate, endDate } = lastTwelveMonthsRange();
+  const { startDate, endDate } = lastTwentyFourMonthsRange();
   const body = {
     startDate,
     endDate,

@@ -227,6 +227,377 @@ section {
   border: 2px solid #1d4ed8;
 }
 
+/* 검색창 (메인 진입점) */
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  max-width: 560px;
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 16px;
+  outline: none;
+}
+
+.search-box button {
+  border: none;
+  border-radius: 12px;
+  padding: 0 22px;
+  font-size: 15px;
+  font-weight: 800;
+  background: #0f172a;
+  color: #fff;
+  cursor: pointer;
+}
+
+.search-box button:hover {
+  background: #1e293b;
+}
+
+.quick-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.quick-chip {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.quick-chip:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+/* 분석 상세 — 상단바 */
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #eceef1;
+}
+
+.topbar-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+
+.back-link {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+/* 분석 헤더 */
+.an-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.an-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.an-title h1 {
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.grade-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grade-badge {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 900;
+  color: #fff;
+}
+
+.grade-S { background: #7c3aed; }
+.grade-A { background: #2563eb; }
+.grade-B { background: #0d9488; }
+.grade-C { background: #f59e0b; }
+.grade-D { background: #9ca3af; }
+
+.grade-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grade-desc {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.grade-tag {
+  font-size: 12px;
+  color: #9097a1;
+  font-weight: 600;
+}
+
+.badge.none {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* 4지표 카드 */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.metric {
+  background: #fff;
+  border: 1px solid #eceef1;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.metric-sub {
+  font-size: 12px;
+  color: #9097a1;
+}
+
+/* 피크 예측 카드 */
+.peak-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.peak-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  border-bottom: 1px dashed #eef0f3;
+  padding-bottom: 8px;
+}
+
+.peak-line:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* 등급 근거 */
+.formula {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.formula .score { color: #2563eb; }
+
+.grade-text.grade-S { color: #7c3aed; }
+.grade-text.grade-A { color: #2563eb; }
+.grade-text.grade-B { color: #0d9488; }
+.grade-text.grade-C { color: #f59e0b; }
+.grade-text.grade-D { color: #9ca3af; }
+
+.grade-breakdown {
+  list-style: none;
+  margin: 14px 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.grade-breakdown li::before {
+  content: '• ';
+  color: #2563eb;
+}
+
+.grade-breakdown li.muted {
+  color: #9097a1;
+}
+
+/* 세분류 비교 */
+.compare-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cbar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 70px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.cbar-row.is-target .cbar-label {
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.cbar-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cbar-track {
+  background: #f1f5f9;
+  border-radius: 6px;
+  height: 18px;
+  overflow: hidden;
+}
+
+.cbar-fill {
+  height: 100%;
+  background: #93c5fd;
+  border-radius: 6px;
+  transition: width 0.3s;
+}
+
+.cbar-row.is-target .cbar-fill {
+  background: #2563eb;
+}
+
+.cbar-value {
+  text-align: right;
+  font-weight: 700;
+  color: #475569;
+}
+
+.manual-compare {
+  margin-top: 22px;
+  border-top: 1px solid #eef0f3;
+  padding-top: 18px;
+}
+
+.sub-h {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.manual-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manual-row input {
+  flex: 1;
+  min-width: 120px;
+  border: 1px solid #d8dbe0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.manual-row input:focus {
+  border-color: #2563eb;
+}
+
+.manual-row .vs {
+  font-weight: 800;
+  color: #9097a1;
+}
+
+/* 버튼 */
+.btn-primary {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:disabled { background: #93c5fd; cursor: default; }
+
+.btn-coupang {
+  display: inline-block;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.btn-coupang:hover { background: #b91c1c; }
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.empty-card {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.dot.amber-out {
+  background: #fde68a;
+  border: 2px solid #f59e0b;
+}
+
 /* 모바일 */
 @media (max-width: 560px) {
   .hero h1 {
@@ -240,5 +611,11 @@ section {
   }
   .rec-card {
     padding: 18px 6px 14px;
+  }
+  .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cbar-row {
+    grid-template-columns: 96px 1fr 56px;
   }
 }
