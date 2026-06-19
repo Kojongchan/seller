@@ -311,6 +311,146 @@ export function buildForecastSeries(series: TrendPoint[], now: Date = new Date()
   return out;
 }
 
+// ── 진입 포인트(초입 진입 타이밍) ───────────────────────────────────────────
+// 핵심 가설: 쿠팡은 피크에 들어가면 이미 판매자가 몰려 경쟁 과열. 따라서
+//   "예상 피크보다 최소 10일 이전 + 검색지수가 ~25에서 상승 중"인 초입부에 진입한다.
+const ENTRY_INDEX = 25; // 초입 기준 지수
+const ENTRY_LEAD_DAYS = 10; // 피크 최소 N일 전까지가 권장 진입 마감
+const WATCH_BELOW = 15; // 이보다 낮으면 아직 시즌 전(관망)
+const PRIME_MAX = 45; // 15~45 = 초입 상승(진입 적기), 그 이상은 상승 양호(초입 지남)
+const SEASON_PEAK_MIN = 50; // 이 정도 피크가 있었어야 '시즌'으로 인정
+const SEASON_OVER_RATIO = 0.85; // 앞으로의 최고점이 지난 피크의 85% 이하면 시즌 정점 지남
+
+export type EntryStatus = 'prime' | 'rising' | 'watch' | 'soon' | 'peak' | 'declining';
+
+export interface EntrySignal {
+  status: EntryStatus;
+  label: string; // 짧은 라벨
+  detail: string; // 한 줄 설명
+  currentIndex: number;
+  daysToPeak: number; // 예상 피크까지(=forecast.dday)
+  rising: boolean;
+  entryFrom: string | null; // 권장 진입 시작 'YYYY-MM-DD'
+  entryTo: string | null; // 권장 진입 마감(피크-10일) 'YYYY-MM-DD'
+  entryDday: number | null; // 오늘→진입 시작까지(이미 구간 안이면 0)
+}
+
+function periodToDateMid(period: string): Date {
+  const y = Number(period.slice(0, 4));
+  const m = Number(period.slice(5, 7)) - 1;
+  const d = period.length >= 10 ? Number(period.slice(8, 10)) : 15; // 월별은 중순으로
+  return new Date(y, m, d);
+}
+
+const ENTRY_LABEL: Record<EntryStatus, string> = {
+  prime: '진입 적기',
+  rising: '상승세',
+  watch: '관망',
+  soon: '막차',
+  peak: '경쟁 과열',
+  declining: '시즌 하락',
+};
+
+// 진입 타이밍 신호. forecast(예상 피크)·예측 곡선을 활용.
+export function computeEntrySignal(
+  series: TrendPoint[],
+  forecast: PeakForecast,
+  now: Date = new Date(),
+  fc?: ForecastPoint[],
+): EntrySignal {
+  const today0 = startOfDay(now);
+  const daily = series.length > 0 && series[0].period.length >= 10;
+  const thisYear = now.getFullYear();
+  const current = computeYoyTrend(series).current;
+  const daysToPeak = forecast.dday;
+
+  // 시즌 정점이 이미 지났는지: 올해 실측 피크 대비 '앞으로의 최고점'이 충분히 낮으면 지남.
+  const todayKey = daily ? fmtDay(today0) : `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const actualThisYear = series.filter((p) => yearOf(p.period) === thisYear && p.period <= todayKey);
+  const actualPeakRatio = actualThisYear.length ? Math.max(...actualThisYear.map((p) => p.ratio)) : 0;
+  const aheadPeakRatio = forecast.projectedPeakRatio ?? 0;
+  // 시즌 정점이 지났다 = 올해 실측 피크는 컸는데 앞으로의 최고점이 그 85% 이하 +
+  // 앞으로 '시즌급(≥50)' 피크가 없을 때만. (겨울 과일처럼 연말에 새 시즌이 오면 제외)
+  const seasonOver =
+    actualPeakRatio >= SEASON_PEAK_MIN &&
+    aheadPeakRatio <= actualPeakRatio * SEASON_OVER_RATIO &&
+    aheadPeakRatio < SEASON_PEAK_MIN;
+
+  const rising = !seasonOver && !forecast.isInPeak && daysToPeak > 0 && current < aheadPeakRatio;
+
+  // 권장 진입 구간: [상승 중 지수가 ~25에 도달하는 날, 피크-10일].
+  let entryFrom: string | null = null;
+  let entryTo: string | null = null;
+  let entryDday: number | null = null;
+  if (!seasonOver && !forecast.isInPeak && daysToPeak > 0) {
+    const fcSeries = fc ?? buildForecastSeries(series, now);
+    const curve = [...series.filter((p) => yearOf(p.period) === thisYear), ...fcSeries].sort((a, b) =>
+      a.period.localeCompare(b.period),
+    );
+    const peakDate = startOfDay(periodToDateMid(forecast.forecastPeak));
+    // '다가오는 예상 피크'에 가장 가까운 점에서 뒤로 가며 25 미만이 되는 지점 = 상승 시작(초입).
+    // (과거에 더 큰 피크가 있어도 그쪽으로 새지 않게 forecast 피크 기준으로 탐색)
+    let pi = 0;
+    let best = Infinity;
+    for (let i = 0; i < curve.length; i++) {
+      const diff = Math.abs(periodToDateMid(curve[i].period).getTime() - peakDate.getTime());
+      if (diff < best) {
+        best = diff;
+        pi = i;
+      }
+    }
+    let si = pi;
+    while (si > 0 && curve[si - 1].ratio >= ENTRY_INDEX) si--;
+    const endDate = new Date(peakDate.getTime() - ENTRY_LEAD_DAYS * DAY);
+    let fromDate = curve[si] ? startOfDay(periodToDateMid(curve[si].period)) : endDate;
+    if (fromDate.getTime() > endDate.getTime()) fromDate = new Date(endDate.getTime() - 7 * DAY);
+    entryFrom = fmtDay(fromDate);
+    entryTo = fmtDay(endDate);
+    entryDday = Math.max(0, Math.round((fromDate.getTime() - today0.getTime()) / DAY));
+  }
+
+  // 상태 판정
+  let status: EntryStatus;
+  if (seasonOver) status = 'declining';
+  else if (forecast.isInPeak) status = 'peak';
+  else if (daysToPeak < ENTRY_LEAD_DAYS) status = 'soon';
+  else if (current < WATCH_BELOW) status = 'watch';
+  else if (current <= PRIME_MAX) status = 'prime';
+  else status = 'rising';
+
+  const detail = entryDetail(status, daysToPeak, entryTo, entryDday);
+  return {
+    status,
+    label: ENTRY_LABEL[status],
+    detail,
+    currentIndex: current,
+    daysToPeak,
+    rising,
+    entryFrom,
+    entryTo,
+    entryDday,
+  };
+}
+
+function entryDetail(status: EntryStatus, dday: number, entryTo: string | null, entryDday: number | null): string {
+  switch (status) {
+    case 'prime':
+      return `초입 상승 구간 — 지금이 진입 적기. 피크 D-${dday}, 권장 진입 마감 ${entryTo ?? '-'}.`;
+    case 'rising':
+      return `상승세 양호(초입은 지남). 피크 D-${dday} — 서두르면 아직 기회.`;
+    case 'watch':
+      return entryDday && entryDday > 0
+        ? `아직 시즌 전. 약 D-${entryDday} 후 진입 구간 진입 예상.`
+        : '아직 시즌 전 — 관망.';
+    case 'soon':
+      return `피크 10일 이내(D-${dday}) — 곧 경쟁 심화, 신규 진입은 신중히.`;
+    case 'peak':
+      return '피크 구간 — 판매자 경쟁 과열. 신규 진입 비추, 다음 시즌을 노려라.';
+    case 'declining':
+      return '시즌 정점은 지남 — 다음 시즌 진입을 준비.';
+  }
+}
+
 export interface YoyTrend {
   direction: 'up' | 'down' | 'flat';
   current: number; // 최신 월(집계) 지수

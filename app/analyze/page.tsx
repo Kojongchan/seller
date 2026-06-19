@@ -16,7 +16,7 @@ import {
   YAxis,
 } from 'recharts';
 import { coupangSearchUrl, representativeKeyword, suggestSubcategories } from '@/lib/keywords';
-import type { Grade, PeakForecast, YoyTrend } from '@/lib/grade';
+import type { EntrySignal, Grade, PeakForecast, YoyTrend } from '@/lib/grade';
 
 interface SeriesPoint {
   period: string; // 'YYYY-MM-DD'(일별) 또는 'YYYY-MM'(월별)
@@ -34,6 +34,7 @@ interface TrendResponse {
   series: SeriesPoint[];
   peakMonths: string[];
   forecastPeakPoint: { period: string; ratio: number } | null;
+  entry: EntrySignal | null;
   summary: {
     currentIndex: number;
     currentPeriod: string | null;
@@ -187,6 +188,9 @@ function Analysis({ data }: { data: TrendResponse }) {
         />
       </section>
 
+      {/* 2.5 진입 포인트 (초입 진입 타이밍) */}
+      {data.entry && <EntryPoint entry={data.entry} />}
+
       {/* 3. 3개년 추이 차트 (재작년·작년·올해 1~12월, 미래는 예측) */}
       <section>
         <h2 className="section-title">📈 3개년 검색 추이 {data.granularity === 'daily' ? '(일별)' : '(월별·샘플)'}</h2>
@@ -197,6 +201,7 @@ function Analysis({ data }: { data: TrendResponse }) {
             <span className="dot indigo" /> 작년 &nbsp;
             <span className="dot white-box" /> 올해(현재+예측) &nbsp;
             <span className="dot red" /> 성수기 &nbsp;
+            <span className="dot green-box" /> 권장 진입 &nbsp;
             <span className="dot green-line" /> 예측·예상 피크 &nbsp;· 실선=실측, 점선=예측, 상대지수(최댓값=100)
           </p>
         </div>
@@ -273,6 +278,44 @@ function Analysis({ data }: { data: TrendResponse }) {
         </div>
       </section>
     </>
+  );
+}
+
+const ENTRY_TONE: Record<EntrySignal['status'], string> = {
+  prime: 'good',
+  rising: 'good',
+  watch: 'wait',
+  soon: 'warn',
+  peak: 'bad',
+  declining: 'bad',
+};
+
+function EntryPoint({ entry }: { entry: EntrySignal }) {
+  return (
+    <section>
+      <h2 className="section-title">🚪 진입 포인트</h2>
+      <div className={`card entry-card entry-${ENTRY_TONE[entry.status]}`}>
+        <div className="entry-head">
+          <span className={`entry-badge entry-badge-${ENTRY_TONE[entry.status]}`}>{entry.label}</span>
+          {entry.entryDday != null && entry.status !== 'peak' && entry.status !== 'declining' && (
+            <span className="entry-dday">
+              {entry.entryDday === 0 ? '지금 진입 구간' : `진입 D-${entry.entryDday}`}
+            </span>
+          )}
+        </div>
+        <p className="entry-detail">{entry.detail}</p>
+        <div className="entry-meta">
+          <span>현재 지수 <b>{entry.currentIndex}</b></span>
+          <span>예상 피크까지 <b>{entry.daysToPeak === 0 ? '0' : `D-${entry.daysToPeak}`}</b></span>
+          {entry.entryFrom && entry.entryTo && (
+            <span>권장 진입 <b>{entry.entryFrom} ~ {entry.entryTo}</b></span>
+          )}
+        </div>
+        <p className="hint" style={{ marginTop: 4 }}>
+          ※ 기준: 검색지수 ~25에서 상승 중 + 예상 피크 10일 이전(쿠팡 피크 경쟁 회피). 경쟁상품수는 1b에서 반영.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -394,6 +437,17 @@ function TrendChart({ data }: { data: TrendResponse }) {
           {spans.map((s) => (
             <ReferenceArea key={s.x1} x1={s.x1} x2={s.x2} fill="#fecaca" fillOpacity={0.4} ifOverflow="extendDomain" />
           ))}
+          {/* 권장 진입 구간(일별만) */}
+          {data.granularity === 'daily' && data.entry?.entryFrom && data.entry?.entryTo && (
+            <ReferenceArea
+              x1={data.entry.entryFrom}
+              x2={data.entry.entryTo}
+              fill="#86efac"
+              fillOpacity={0.5}
+              ifOverflow="extendDomain"
+              label={{ value: '진입', fontSize: 10, fill: '#15803d', position: 'insideTop' }}
+            />
+          )}
           {fc?.prevYearPeak && (
             <ReferenceLine
               x={fc.prevYearPeak.period}

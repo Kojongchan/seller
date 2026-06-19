@@ -649,6 +649,56 @@ section {
   border: 1px solid #d7dde6;
 }
 
+.dot.green-box {
+  background: #86efac;
+  border: 1px solid #22c55e;
+}
+
+/* 진입 포인트 카드 */
+.entry-card {
+  border-left: 4px solid #cbd5e1;
+}
+.entry-card.entry-good { border-left-color: #16a34a; background: #f3fbf5; }
+.entry-card.entry-wait { border-left-color: #2563eb; background: #f4f8ff; }
+.entry-card.entry-warn { border-left-color: #f59e0b; background: #fffaf0; }
+.entry-card.entry-bad  { border-left-color: #dc2626; background: #fff5f5; }
+
+.entry-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.entry-badge {
+  font-size: 14px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 8px;
+  color: #fff;
+}
+.entry-badge-good { background: #16a34a; }
+.entry-badge-wait { background: #2563eb; }
+.entry-badge-warn { background: #f59e0b; }
+.entry-badge-bad  { background: #dc2626; }
+.entry-dday {
+  font-weight: 700;
+  color: #334155;
+  font-size: 14px;
+}
+.entry-detail {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0 0 10px;
+}
+.entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 13px;
+  color: #475569;
+}
+.entry-meta b { color: #0f172a; }
+
 /* 모바일 */
 @media (max-width: 560px) {
   .hero h1 {

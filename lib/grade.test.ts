@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildForecastSeries,
+  computeEntrySignal,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
@@ -187,6 +188,44 @@ test('buildForecastSeries: 오늘 이후~연말, 0~100, 형태×수준 피크', 
 
 test('buildForecastSeries: 데이터 없으면 빈 배열', () => {
   assert.deepEqual(buildForecastSeries([], new Date(2026, 5, 19)), []);
+});
+
+// 달력월 프로파일로 3개년 일별 시리즈 생성(2024-01-01 ~ now).
+function dailyFromProfile(base: number[], end: Date): TrendPoint[] {
+  const out: TrendPoint[] = [];
+  for (let d = new Date(2024, 0, 1); d <= end; d.setDate(d.getDate() + 1)) {
+    out.push({
+      period: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      ratio: base[d.getMonth()],
+    });
+  }
+  return out;
+}
+
+test('computeEntrySignal: 초입 상승(현재~25, 피크 먼 미래) → prime + 진입마감=피크-10일', () => {
+  const now = new Date(2026, 5, 19); // 6월 19일
+  const base = [5, 5, 8, 12, 18, 25, 60, 100, 70, 30, 12, 6]; // 8월 피크, 6월≈25
+  const series = dailyFromProfile(base, now);
+  const forecast = computePeakForecast(series, now);
+  const e = computeEntrySignal(series, forecast, now);
+  assert.equal(e.status, 'prime');
+  assert.equal(e.rising, true);
+  assert.ok(e.daysToPeak >= 10);
+  // 진입 마감 = 예상 피크 − 10일
+  const peak = new Date(Number(forecast.forecastPeak.slice(0, 4)), Number(forecast.forecastPeak.slice(5, 7)) - 1, Number(forecast.forecastPeak.slice(8, 10)));
+  const end = new Date(peak.getTime() - 10 * 86_400_000);
+  const expected = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+  assert.equal(e.entryTo, expected);
+});
+
+test('computeEntrySignal: 봄 과일을 여름에 보면 → declining(시즌 지남)', () => {
+  const now = new Date(2026, 5, 19); // 6월 19일
+  const base = [40, 70, 100, 60, 30, 12, 8, 8, 10, 15, 25, 35]; // 3월 피크
+  const series = dailyFromProfile(base, now);
+  const forecast = computePeakForecast(series, now);
+  const e = computeEntrySignal(series, forecast, now);
+  assert.equal(e.status, 'declining');
+  assert.equal(e.entryFrom, null);
 });
 
 test('gradeFromTrend: 점수 0~100, 등급·산식 일관성', () => {
