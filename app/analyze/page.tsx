@@ -202,7 +202,7 @@ function Analysis({ data }: { data: TrendResponse }) {
         </div>
       </section>
 
-      {/* 4. 시즌 피크 예측 (재작년→작년 모멘텀 반영) */}
+      {/* 4. 시즌 피크 예측 (형태×수준 예측 곡선 기준) */}
       {forecast && (
         <section>
           <h2 className="section-title">🗓️ 시즌 피크 예측</h2>
@@ -213,13 +213,10 @@ function Analysis({ data }: { data: TrendResponse }) {
             </div>
             <div className="peak-line">
               <b>올해 예상 피크지수</b>
-              <span>
-                {forecast.projectedPeakRatio ?? forecast.peakRatio}
-                {forecast.projectedPeakRatio === 100 && forecast.yoyGrowthPct != null && forecast.yoyGrowthPct > 0 && ' · 역대 최고 수준 기대'}
-              </span>
+              <span>{forecast.projectedPeakRatio ?? forecast.peakRatio}</span>
             </div>
             <div className="peak-line">
-              <b>지수 모멘텀</b>
+              <b>작년 대비 관측</b>
               <span>{momentumText(forecast)}</span>
             </div>
             <div className="peak-line">
@@ -297,25 +294,24 @@ function yoyArrow(yoy: YoyTrend): string {
 
 // 예측 근거별 신뢰도 안내(시즌 피크 예측 카드 하단).
 const BASIS_NOTE: Record<PeakForecast['basis'], string> = {
-  yoy: '※ 2년 실데이터 기반: 재작년→작년의 실제 변화(지수·시점)를 올해로 한 번 더 투영한 예상치입니다.',
-  lastyear: '※ 작년 1년치만 있어 작년 패턴을 그대로 투영했습니다. 2년치가 쌓이면 모멘텀까지 반영됩니다.',
-  profile: '※ 일자 단위 피크가 없어 시즌 평균(피크월)으로 추정한 값입니다.',
+  yoy: '※ 예측 = 과거 2년 시즌 형태(작년 0.6 + 재작년 0.4)에 올해 현재 수준을 반영(형태×수준). 단일 피크 이상치에 휘둘리지 않습니다.',
+  lastyear: '※ 작년 1년치만 있어 작년 형태에 올해 현재 수준만 반영했습니다. 2년치가 쌓이면 형태가 더 안정됩니다.',
+  profile: '※ 일자 단위 데이터가 부족해 시즌 평균(피크월)으로 추정한 값입니다.',
 };
 
-// "재작년 60 → 작년 90 (+50%) → 올해 예상 135"
+// 관측 정보: "재작년 60 → 작년 90 (+50%)" (예측 산식이 아니라 실제 관측 변화)
 function momentumText(fc: PeakForecast): string {
   if (fc.yoyGrowthPct == null || !fc.prevYearPeak || !fc.lastYearPeak) return '비교 데이터 부족 (2년치 필요)';
   const sign = fc.yoyGrowthPct > 0 ? '+' : '';
-  const proj = fc.projectedPeakRatio ?? fc.lastYearPeak.ratio;
-  return `재작년 ${fc.prevYearPeak.ratio} → 작년 ${fc.lastYearPeak.ratio} (${sign}${fc.yoyGrowthPct}%) → 올해 예상 ${proj}`;
+  return `재작년 피크 ${fc.prevYearPeak.ratio} → 작년 피크 ${fc.lastYearPeak.ratio} (${sign}${fc.yoyGrowthPct}%)`;
 }
 
-// "작년 피크가 재작년보다 10일 늦어짐 → 올해 반영"
+// "작년 피크가 재작년보다 10일 늦어짐"
 function shiftText(fc: PeakForecast): string {
   if (fc.peakShiftDays == null) return '비교 데이터 부족 (2년치 필요)';
-  if (fc.peakShiftDays === 0) return '작년·재작년 피크 시점 동일 → 올해도 비슷한 시점 예상';
+  if (fc.peakShiftDays === 0) return '작년·재작년 피크 시점 동일';
   const dir = fc.peakShiftDays > 0 ? '늦어짐' : '빨라짐';
-  return `작년 피크가 재작년보다 ${Math.abs(fc.peakShiftDays)}일 ${dir} → 올해 반영`;
+  return `작년 피크가 재작년보다 ${Math.abs(fc.peakShiftDays)}일 ${dir}`;
 }
 
 // 성수기(피크 달력월) 연속 구간을 차트 ReferenceArea 범위로 변환.

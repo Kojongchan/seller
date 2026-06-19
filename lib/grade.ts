@@ -36,10 +36,6 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function sortByPeriod(series: TrendPoint[]): TrendPoint[] {
-  return [...series].sort((a, b) => a.period.localeCompare(b.period));
-}
-
 function avg(arr: number[]): number {
   if (arr.length === 0) return 0;
   return arr.reduce((s, v) => s + v, 0) / arr.length;
@@ -109,8 +105,8 @@ export interface PeakForecast {
   // ── 실데이터 기반 예측(재작년 대비 작년 변화 → 올해 투영) ──
   basis: ForecastBasis; // 예측 근거/신뢰도
   yoyGrowthPct: number | null; // 재작년 대비 작년 피크 변화율(%) [관측값]
-  projectedPeakRatio: number | null; // 올해 예상 피크 지수 (모멘텀 투영)
-  peakShiftDays: number | null; // 피크 시점 변화(작년-재작년, 일). 양수=늦어짐
+  projectedPeakRatio: number | null; // 올해 예상 피크 지수 (예측 곡선 최고점)
+  peakShiftDays: number | null; // 피크 시점 변화(작년-재작년, 일). 양수=늦어짐 [관측값]
 }
 
 // 'YYYY-MM-DD'/'YYYY-MM' → 1년 안에서의 일 순서(0~365). 연도 무시, 시점 비교용.
@@ -126,70 +122,74 @@ const MAX_SHIFT_DAYS = 21;
 const MIN_PREV_PEAK = 5;
 
 // 예상 피크월·피크지수·피크 일자·D-day·작년/재작년 피크 비교.
-// 핵심: '작년 그대로'가 아니라 재작년→작년의 실제 변화(지수 성장·피크 시점 이동)를
-//       올해로 한 번 더 투영해 예상치를 만든다.
-export function computePeakForecast(series: TrendPoint[], now: Date = new Date()): PeakForecast {
+// 예상 피크 = 예측 곡선(형태×수준)에서 '오늘 이후'의 최고점.
+//   (재작년→작년 변화는 yoyGrowthPct/peakShiftDays로 '관측 정보'만 보존.)
+export function computePeakForecast(
+  series: TrendPoint[],
+  now: Date = new Date(),
+  fc?: ForecastPoint[],
+): PeakForecast {
   const profile = seasonalProfile(series);
-  let peakMonthIndex = 0;
+  let seasonPeakMonth = 0;
   for (let i = 1; i < 12; i++) {
-    if (profile[i] > profile[peakMonthIndex]) peakMonthIndex = i;
+    if (profile[i] > profile[seasonPeakMonth]) seasonPeakMonth = i;
   }
-  const peakRatio = Math.round(profile[peakMonthIndex]);
 
   const today0 = startOfDay(now);
-  // 작년/재작년 = 달력연도(1~12월) 기준. 차트의 연도 밴드와 일치시킨다.
   const thisYear = now.getFullYear();
+  const daily = series.length > 0 && series[0].period.length >= 10;
+
+  // 작년/재작년 = 달력연도(1~12월) 기준. 차트의 연도 밴드와 일치.
   const lastYearPeak = peakInfoOf(series.filter((p) => yearOf(p.period) === thisYear - 1));
   const prevYearPeak = peakInfoOf(series.filter((p) => yearOf(p.period) === thisYear - 2));
-
-  // 1) 예측 근거 판정
   const hasBoth = Boolean(lastYearPeak && prevYearPeak);
   const basis: ForecastBasis = hasBoth ? 'yoy' : lastYearPeak ? 'lastyear' : 'profile';
 
-  // 2) 지수 모멘텀: 재작년 대비 작년 피크 변화율 → 올해 예상 피크 지수.
+  // 관측 모멘텀(재작년→작년) — 참고 정보로만 보존.
   let yoyGrowthPct: number | null = null;
-  let projectedPeakRatio: number | null = lastYearPeak ? lastYearPeak.ratio : null;
   if (hasBoth && prevYearPeak!.ratio >= MIN_PREV_PEAK) {
-    const growth = lastYearPeak!.ratio / prevYearPeak!.ratio;
-    yoyGrowthPct = Math.round((growth - 1) * 100);
-    // 같은 비율로 올해를 한 번 더 투영. 검색지수는 0~100 정규화 값이므로 상한 100.
-    // (관측 성장률 yoyGrowthPct는 캡과 무관하게 그대로 보존.)
-    projectedPeakRatio = Math.round(clamp(lastYearPeak!.ratio * growth, 0, 100));
+    yoyGrowthPct = Math.round((lastYearPeak!.ratio / prevYearPeak!.ratio - 1) * 100);
   }
-
-  // 3) 시점 모멘텀: 작년 피크가 재작년보다 얼마나 빨라/늦어졌는지 → 올해 반영.
   let peakShiftDays: number | null = null;
   if (hasBoth) {
     const raw = dayOfYearOf(lastYearPeak!.period) - dayOfYearOf(prevYearPeak!.period);
     peakShiftDays = Math.max(-MAX_SHIFT_DAYS, Math.min(MAX_SHIFT_DAYS, raw));
   }
 
-  // 4) 예상 피크 일자: 작년 피크 '월·일'을 기준으로 시점 모멘텀만큼 이동해 올해/내년에 투영.
-  const basePeak = lastYearPeak ?? prevYearPeak;
-  let peakMonth = peakMonthIndex;
-  let peakDay = 1;
-  if (basePeak) {
-    peakMonth = monthIndexOf(basePeak.period);
-    peakDay = basePeak.period.length >= 10 ? Number(basePeak.period.slice(8, 10)) : 1;
-  }
-  // 날짜 오버플로는 JS Date가 정규화(예: 9월 35일 → 10월 5일).
-  let forecast = new Date(now.getFullYear(), peakMonth, peakDay + (peakShiftDays ?? 0));
-  if (startOfDay(forecast) < today0) {
-    forecast = new Date(now.getFullYear() + 1, peakMonth, peakDay + (peakShiftDays ?? 0));
-  }
-  const dday = Math.max(0, Math.round((startOfDay(forecast).getTime() - today0.getTime()) / DAY));
-  const isInPeak = now.getMonth() === peakMonthIndex;
+  // 예측 곡선 기준 '오늘 이후' 최고점 = 올해 실측(오늘까지) + 예측(오늘 이후) 중 최댓값.
+  const forecastSeries = fc ?? buildForecastSeries(series, now);
+  const todayStr = daily ? fmtDay(today0) : `${thisYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const forward = [...series.filter((p) => yearOf(p.period) === thisYear), ...forecastSeries]
+    .filter((p) => p.period >= todayStr);
+  const peakPt = forward.length ? forward.reduce((m, p) => (p.ratio > m.ratio ? p : m)) : null;
 
-  const fy = forecast.getFullYear();
-  const fm = String(forecast.getMonth() + 1).padStart(2, '0');
-  const fd = String(forecast.getDate()).padStart(2, '0');
+  let peakMonthIndex = seasonPeakMonth;
+  let peakRatio = Math.round(profile[seasonPeakMonth]);
+  let projectedPeakRatio: number | null = lastYearPeak ? lastYearPeak.ratio : null;
+  let forecastPeak = `${thisYear}-${String(seasonPeakMonth + 1).padStart(2, '0')}-01`;
+  let peakDateLabel = MONTH_LABELS[seasonPeakMonth];
+  let dday = 0;
+  let isInPeak = now.getMonth() === seasonPeakMonth;
+
+  if (peakPt) {
+    const m = monthIndexOf(peakPt.period);
+    const day = peakPt.period.length >= 10 ? Number(peakPt.period.slice(8, 10)) : 1;
+    const pd = new Date(thisYear, m, day);
+    peakMonthIndex = m;
+    peakRatio = peakPt.ratio;
+    projectedPeakRatio = peakPt.ratio;
+    forecastPeak = peakPt.period.length >= 10 ? peakPt.period : `${peakPt.period}-01`;
+    peakDateLabel = daily ? `${MONTH_LABELS[m]} ${day}일` : MONTH_LABELS[m];
+    dday = Math.max(0, Math.round((startOfDay(pd).getTime() - today0.getTime()) / DAY));
+    isInPeak = dday === 0 || (now.getMonth() === m && dday <= 7);
+  }
 
   return {
     peakMonthIndex,
     peakMonthLabel: MONTH_LABELS[peakMonthIndex],
     peakRatio,
-    peakDateLabel: `${MONTH_LABELS[forecast.getMonth()]} ${forecast.getDate()}일`,
-    forecastPeak: `${fy}-${fm}-${fd}`,
+    peakDateLabel,
+    forecastPeak,
     dday,
     isInPeak,
     lastYearPeak,
@@ -210,80 +210,80 @@ function fmtDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// 성장률은 노이즈(아주 작은 재작년 피크)로 과도해지지 않게 0.5~2.0배로 제한.
-const GROWTH_LO = 0.5;
-const GROWTH_HI = 2.0;
-// 이음새 보정 기간(일): 오늘 실측값에 맞춘 뒤 이 기간에 걸쳐 순수 모멘텀으로 수렴.
-const ANCHOR_DAYS = 30;
+// 시즌 형태(shape) 가중치: 작년을 더 크게.
+const SHAPE_LAST_W = 0.6;
+const SHAPE_PREV_W = 0.4;
+// 올해 수준(level) 배율은 과도하지 않게 제한. 최근 비교 윈도우 길이.
+const LEVEL_LO = 0.4;
+const LEVEL_HI = 2.5;
+const LEVEL_WINDOW_DAILY = 30; // 최근 30일
+const LEVEL_WINDOW_MONTHLY = 2; // 최근 2개월
 
 // 올해 '오늘 이후 ~ 12월 말'의 예측 일별/월별 시리즈.
-// 방법(확정): 작년 같은 시기 곡선을 (재작년 대비 작년 피크) 성장률로 보정 + 피크 시점
-//   이동(±21일) 반영 → 최대 100 클램프. 단, 오늘 실측값과 자연스럽게 이어지도록
-//   이음새(약 30일)는 실측 최근 수준에 맞춰 보정 후 순수 모멘텀으로 수렴시킨다.
+// 방법(확정, '형태×수준 분리'):
+//   ① 형태(shape) = 과거 2년의 같은 날짜 값을 가중평균(작년 0.6 + 재작년 0.4)한
+//      '전형적 시즌 패턴'. 단일 피크 이상치에 휘둘리지 않음(평활화는 적용 안 함).
+//   ② 수준(level) = 올해 현재까지 실측이 같은 시기 형태 대비 몇 배인지 → 배율.
+//   ③ 예측 = clamp(형태 × 배율, 0, 100). 오늘 실측 수준과 자연스럽게 이어짐.
 export function buildForecastSeries(series: TrendPoint[], now: Date = new Date()): ForecastPoint[] {
   if (series.length === 0) return [];
   const daily = series[0].period.length >= 10;
   const thisYear = now.getFullYear();
-  const lastNum = thisYear - 1;
-  const prevNum = thisYear - 2;
+  const keyOf = (period: string) => (daily ? period.slice(5, 10) : period.slice(5, 7));
 
-  const lastPeak = peakInfoOf(series.filter((p) => yearOf(p.period) === lastNum));
-  const prevPeak = peakInfoOf(series.filter((p) => yearOf(p.period) === prevNum));
-
-  // 재작년→작년 피크 성장률(보정 배율).
-  let growth = 1;
-  if (lastPeak && prevPeak && prevPeak.ratio >= MIN_PREV_PEAK) {
-    growth = clamp(lastPeak.ratio / prevPeak.ratio, GROWTH_LO, GROWTH_HI);
-  }
-  // 피크 시점 이동(일별만).
-  let shift = 0;
-  if (daily && lastPeak && prevPeak) {
-    const raw = dayOfYearOf(lastPeak.period) - dayOfYearOf(prevPeak.period);
-    shift = Math.max(-MAX_SHIFT_DAYS, Math.min(MAX_SHIFT_DAYS, raw));
-  }
-
-  // 보정 기준 곡선: 작년(없으면 재작년) 값을 'MM-DD'/'MM' 키로 조회.
-  const key = (period: string) => (daily ? period.slice(5, 10) : period.slice(5, 7));
+  // 연도별 (MM-DD / MM) → 지수 맵.
   const lastMap = new Map<string, number>();
   const prevMap = new Map<string, number>();
   for (const p of series) {
     const y = yearOf(p.period);
-    if (y === lastNum) lastMap.set(key(p.period), p.ratio);
-    else if (y === prevNum) prevMap.set(key(p.period), p.ratio);
+    if (y === thisYear - 1) lastMap.set(keyOf(p.period), p.ratio);
+    else if (y === thisYear - 2) prevMap.set(keyOf(p.period), p.ratio);
   }
-  const lookup = (k: string): number | undefined => lastMap.get(k) ?? prevMap.get(k);
+  // 형태: 작년·재작년 가중평균(둘 중 하나만 있으면 그것).
+  const shapeAt = (k: string): number | null => {
+    const l = lastMap.get(k);
+    const pv = prevMap.get(k);
+    if (l != null && pv != null) return SHAPE_LAST_W * l + SHAPE_PREV_W * pv;
+    if (l != null) return l;
+    if (pv != null) return pv;
+    return null;
+  };
 
+  // 수준 배율: 올해 최근 실측 합 / 같은 시기 형태 합.
+  const thisYearActual = series
+    .filter((p) => yearOf(p.period) === thisYear)
+    .sort((a, b) => a.period.localeCompare(b.period));
+  const window = thisYearActual.slice(daily ? -LEVEL_WINDOW_DAILY : -LEVEL_WINDOW_MONTHLY);
+  let num = 0;
+  let den = 0;
+  for (const p of window) {
+    const s = shapeAt(keyOf(p.period));
+    if (s != null) {
+      num += p.ratio;
+      den += s;
+    }
+  }
+  const factor = den > 0 ? clamp(num / den, LEVEL_LO, LEVEL_HI) : 1;
+
+  // 미래 구간 생성.
   const today0 = startOfDay(now);
-  const recentReal = avg(sortByPeriod(series).slice(daily ? -7 : -1).map((p) => p.ratio));
-
-  // 1) 미래 구간의 원시 예측(성장률·시점이동만 반영).
-  const raw: ForecastPoint[] = [];
+  const out: ForecastPoint[] = [];
   if (daily) {
     const end = new Date(thisYear, 11, 31);
     for (let t = today0.getTime() + DAY; t <= end.getTime(); t += DAY) {
       const d = new Date(t);
-      const src = new Date(t - shift * DAY); // 시점 이동: 작년의 (오늘-이동)일 값을 가져옴
-      const base = lookup(`${String(src.getMonth() + 1).padStart(2, '0')}-${String(src.getDate()).padStart(2, '0')}`);
-      if (base == null) continue;
-      raw.push({ period: fmtDay(d), ratio: base * growth });
+      const s = shapeAt(`${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      if (s == null) continue;
+      out.push({ period: fmtDay(d), ratio: Math.round(clamp(s * factor, 0, 100)) });
     }
   } else {
     for (let m = now.getMonth() + 1; m <= 11; m++) {
-      const base = lookup(String(m + 1).padStart(2, '0'));
-      if (base == null) continue;
-      raw.push({ period: `${thisYear}-${String(m + 1).padStart(2, '0')}`, ratio: base * growth });
+      const s = shapeAt(String(m + 1).padStart(2, '0'));
+      if (s == null) continue;
+      out.push({ period: `${thisYear}-${String(m + 1).padStart(2, '0')}`, ratio: Math.round(clamp(s * factor, 0, 100)) });
     }
   }
-  if (raw.length === 0) return [];
-
-  // 2) 이음새 보정(일별만): 첫 예측점을 오늘 실측 수준에 맞추고 ANCHOR_DAYS에 걸쳐
-  //    1배로 수렴. 월별(샘플 데모)은 보정 없이 순수 모멘텀(피크가 첫 달이어도 안 눌림).
-  const anchor = daily && raw[0].ratio > 0 ? recentReal / raw[0].ratio : 1;
-  const span = daily ? ANCHOR_DAYS : 1;
-  return raw.map((p, i) => {
-    const f = 1 + (anchor - 1) * Math.max(0, 1 - i / span);
-    return { period: p.period, ratio: Math.round(clamp(p.ratio * f, 0, 100)) };
-  });
+  return out;
 }
 
 export interface YoyTrend {

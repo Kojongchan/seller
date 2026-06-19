@@ -88,20 +88,21 @@ function dailyWithPeaks(
   return out;
 }
 
-test('computePeakForecast: 재작년→작년 모멘텀으로 올해 지수·시점 투영', () => {
+test('computePeakForecast: 형태×수준 예측 + 관측 모멘텀 보존', () => {
   const now = new Date(2026, 5, 19); // 2026-06-19
   const series = dailyWithPeaks(
     { date: '2024-09-01', ratio: 60 }, // 재작년 피크
-    { date: '2025-09-11', ratio: 90 }, // 작년 피크(+50%, 10일 늦어짐)
+    { date: '2025-09-11', ratio: 90 }, // 작년 피크
   );
   const fc = computePeakForecast(series, now);
   assert.equal(fc.basis, 'yoy');
-  assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100 (관측값, 캡 없음)
-  assert.equal(fc.projectedPeakRatio, 100); // 90 * 1.5 = 135 → 100 상한
+  // 관측 모멘텀(재작년→작년)은 참고 정보로 보존.
+  assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100
   assert.equal(fc.peakShiftDays, 10); // 9/11 - 9/1
-  // 작년 피크(9/11)에 시점 모멘텀(+10일) 반영 → 올해 9/21 예상
-  assert.equal(fc.forecastPeak, '2026-09-21');
-  assert.equal(fc.peakDateLabel, '9월 21일');
+  // 예상 피크 = 예측 곡선(형태×수준) 최고점. 9/11 형태 = 0.6*90 + 0.4*10 = 58, 수준배율 1.
+  assert.equal(fc.forecastPeak, '2026-09-11');
+  assert.equal(fc.peakDateLabel, '9월 11일');
+  assert.equal(fc.projectedPeakRatio, 58);
 });
 
 test('computePeakForecast: 시점 이동은 ±21일로 제한', () => {
@@ -127,11 +128,11 @@ test('computePeakForecast: 1년치만 있으면 basis=lastyear, 모멘텀 없음
   assert.equal(fc.projectedPeakRatio, 90);
 });
 
-test('computePeakForecast: 피크 당일이면 D-day 0', () => {
-  const now = new Date(2026, 6, 15); // 7월 15일
+test('computePeakForecast: 오늘이 피크면 D-day 0 (오늘 실측이 앞으로의 최고점)', () => {
+  const now = new Date(2025, 6, 15); // 2025-07-15 = 그해 피크 당일(실측 100)
   const fc = computePeakForecast(dailySummerSeries(), now);
-  assert.equal(fc.isInPeak, true);
   assert.equal(fc.dday, 0);
+  assert.equal(fc.isInPeak, true);
 });
 
 test('computeYoyTrend: 동월 평균 상승 감지 (일별 집계)', () => {
@@ -168,17 +169,17 @@ function dailyThreeYears(): TrendPoint[] {
   return out;
 }
 
-test('buildForecastSeries: 오늘 이후~연말, 0~100, 작년 모멘텀 반영 피크', () => {
+test('buildForecastSeries: 오늘 이후~연말, 0~100, 형태×수준 피크', () => {
   const now = new Date(2026, 5, 19); // 2026-06-19
   const fc = buildForecastSeries(dailyThreeYears(), now);
   assert.ok(fc.length > 0);
   assert.equal(fc[0].period, '2026-06-20'); // 오늘 다음날부터
   assert.equal(fc[fc.length - 1].period, '2026-12-31'); // 연말까지
-  assert.ok(fc.every((p) => p.ratio >= 0 && p.ratio <= 100)); // 100 상한
-  // 작년(80)을 재작년 대비 성장(×2, 클램프)으로 보정 → 8/15 부근 100으로 피크.
+  assert.ok(fc.every((p) => p.ratio >= 0 && p.ratio <= 100)); // 0~100
+  // 8/15 형태 = 0.6*작년(80) + 0.4*재작년(40) = 64. 올해 수준배율 1 → 64.
   const peak = fc.reduce((m, p) => (p.ratio > m.ratio ? p : m));
   assert.equal(peak.period.slice(5, 7), '08');
-  assert.equal(peak.ratio, 100);
+  assert.equal(peak.ratio, 64);
 });
 
 test('buildForecastSeries: 데이터 없으면 빈 배열', () => {
