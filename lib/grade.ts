@@ -164,8 +164,9 @@ export function computePeakForecast(series: TrendPoint[], now: Date = new Date()
   if (hasBoth && prevYearPeak!.ratio >= MIN_PREV_PEAK) {
     const growth = lastYearPeak!.ratio / prevYearPeak!.ratio;
     yoyGrowthPct = Math.round((growth - 1) * 100);
-    // 같은 비율로 올해를 한 번 더 투영(역대 최고 경신 가능 → 상한 200).
-    projectedPeakRatio = Math.round(clamp(lastYearPeak!.ratio * growth, 0, 200));
+    // 같은 비율로 올해를 한 번 더 투영. 검색지수는 0~100 정규화 값이므로 상한 100.
+    // (관측 성장률 yoyGrowthPct는 캡과 무관하게 그대로 보존.)
+    projectedPeakRatio = Math.round(clamp(lastYearPeak!.ratio * growth, 0, 100));
   }
 
   // 3) 시점 모멘텀: 작년 피크가 재작년보다 얼마나 빨라/늦어졌는지 → 올해 반영.

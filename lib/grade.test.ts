@@ -95,8 +95,8 @@ test('computePeakForecast: 재작년→작년 모멘텀으로 올해 지수·시
   );
   const fc = computePeakForecast(series, now);
   assert.equal(fc.basis, 'yoy');
-  assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100
-  assert.equal(fc.projectedPeakRatio, 135); // 90 * 1.5
+  assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100 (관측값, 캡 없음)
+  assert.equal(fc.projectedPeakRatio, 100); // 90 * 1.5 = 135 → 100 상한
   assert.equal(fc.peakShiftDays, 10); // 9/11 - 9/1
   // 작년 피크(9/11)에 시점 모멘텀(+10일) 반영 → 올해 9/21 예상
   assert.equal(fc.forecastPeak, '2026-09-21');
