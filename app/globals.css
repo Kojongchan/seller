@@ -615,6 +615,30 @@ section {
   background: none;
 }
 
+.dot.green-line {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed #16a34a;
+  border-radius: 0;
+  background: none;
+}
+
+/* 연도 배경 범례 */
+.dot.slate {
+  background: #eef1f5;
+  border: 1px solid #d7dde6;
+}
+
+.dot.indigo {
+  background: #e8edff;
+  border: 1px solid #c7d2fe;
+}
+
+.dot.white-box {
+  background: #fff;
+  border: 1px solid #d7dde6;
+}
+
 /* 모바일 */
 @media (max-width: 560px) {
   .hero h1 {

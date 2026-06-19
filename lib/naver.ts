@@ -22,13 +22,14 @@ export function hasNaverKeys(): boolean {
   return Boolean(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET);
 }
 
-// 최근 24개월(오늘까지)의 시작/종료일 문자열을 만든다.
+// 재작년 1월 1일 ~ 오늘의 시작/종료일 문자열을 만든다.
+// 차트가 '재작년·작년·올해' 3개 달력연도(1~12월)를 기준으로 그리므로,
+// 실데이터는 재작년 1/1부터 오늘까지 받아온다(올해 오늘 이후는 클라이언트에서 예측).
 // ⚠️ 네이버는 endDate 가 '미래'면 요청을 거부한다 → 반드시 오늘(또는 과거)로.
-//    (이전엔 이번 달 말일=미래로 보내 일별 호출이 매번 실패 → 샘플 폴백되는 버그가 있었음)
-// 네이버 검색어트렌드는 2016-01-01 이후 데이터를 제공하므로 24개월은 항상 범위 내.
-function lastTwentyFourMonthsRange(): { startDate: string; endDate: string } {
+// 네이버 검색어트렌드는 2016-01-01 이후 데이터를 제공하므로 항상 범위 내.
+function calendarYearsRange(): { startDate: string; endDate: string } {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 23, 1); // 23개월 전 1일
+  const start = new Date(now.getFullYear() - 2, 0, 1); // 재작년 1월 1일
   // 로컬 타임존으로 인한 날짜 밀림 방지: 연/월/일을 직접 포맷.
   const fmt = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -43,7 +44,7 @@ export async function fetchSearchTrend(
 ): Promise<TrendDatum[] | null> {
   if (!hasNaverKeys()) return null;
 
-  const { startDate, endDate } = lastTwentyFourMonthsRange();
+  const { startDate, endDate } = calendarYearsRange();
   const body = {
     startDate,
     endDate,

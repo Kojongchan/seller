@@ -26,7 +26,7 @@ export default function Home() {
       <header className="hero">
         <div className="hero-inner">
           <h1>🍉 과일 키워드 분석기</h1>
-          <p>아무 과일·키워드나 검색하면 2년 추이·시즌 피크·등급을 한 화면에서.</p>
+          <p>아무 과일·키워드나 검색하면 3개년 추이·시즌 피크·등급을 한 화면에서.</p>
           <span className="today">{now.getFullYear()}년 {monthLabel} 기준</span>
 
           {/* 큰 검색창 — 진입점 */}
