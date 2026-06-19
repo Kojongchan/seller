@@ -139,6 +139,10 @@
   - **✅ 구현 (2026-06-19):** `lib/datalab.ts`(쇼핑인사이트 `getCategoryKeywordRank.naver` 크롤러 + 응답 파서, 실패/차단 시 null), `lib/golden.ts`(황금키워드 엔진 = 위 4규칙 순수함수), `lib/popular.ts`(크롤→샘플 폴백 오케스트레이터), `app/api/popular`(인기검색어 TOP API), **메인 `🔥 인기검색어 TOP` + `💎 황금키워드` 섹션**(6h ISR, 샘플 폴백).
   - **✅ TOP500 페이지네이션 (2026-06-19):** 데이터랩은 페이지당 20위 → `fetchCategoryKeywordRank(cid, limit≤500)`가 페이지(최대 25)를 순차 크롤해 **전역 순위(1..N)로 재번호**(`flattenRanks` 순수함수, 중복 제거). 첫 페이지 차단이면 null→샘플, 중간 실패면 부분결과. `/api/popular?top=` 상한 500. 단위테스트 12건(golden 5 + datalab 7=파서4+페이지네이션3) → 전체 27건 통과, `npm run build` 통과.
   - **⚠️ 라이브 검증 블로커(미해결·환경 문제):** 원격 개발 샌드박스 egress 정책이 `datalab.naver.com` 포함 **모든 외부 도메인을 403("Blocked by egress policy")으로 차단.** Node·**Python 둘 다 동일 403**으로 확인 → **언어/툴 문제가 아니라 환경 네트워크 정책**. 빌드 시 `[datalab] rank page 1 → 403` 후 샘플 폴백. **실데이터 경로는 egress 허용 환경(프로덕션 Vercel 등 또는 datalab.naver.com 허용 정책의 웹 환경)에서만 검증·동작.** 엔진/파서/페이지네이션은 순수함수로 분리해 오프라인 테스트로 검증 완료. 해제 방법: 환경 네트워크 정책에 `datalab.naver.com` 허용(웹 환경 설정) 또는 프로덕션 배포.
+  - **✅ 데이터 소스 3단화 (2026-06-19, B·C안):** `lib/popular.ts` 가 **① 라이브 크롤(datalab) → ② 스냅샷(`data/popular.json`) → ③ 샘플** 순으로 폴백.
+    - **B안(프로덕션):** Vercel 등 egress 허용 환경은 ①로 자동 동작(코드 그대로 배포 가능).
+    - **C안(스냅샷 임포트):** egress 막힌 곳에서도 **막히지 않은 PC에서 데이터를 뽑아 `data/popular.json` 으로 커밋**하면 ②로 실데이터 표시. 생성기 `scripts/fetch-popular.mjs`(Node, TOP500 페이지네이션) + 형식/엑셀VBA 안내 `docs/POPULAR_SNAPSHOT.md` + 템플릿 `data/popular.example.json`. 스냅샷 정규화는 `normalizeSnapshot` 순수함수(테스트 3건). 전체 30건 통과.
+    - 핵심: 크롤이 "엑셀이라서" 되는 게 아니라 **실행 네트워크가 안 막혀서** 되는 것 → C안은 "막히지 않은 곳에서 뽑아 파일로 주입"으로 정리.
   - **남은 후속:** ① egress 허용 환경에서 라이브 크롤 실측 검증(응답 스키마·전역순위 확인) ② 연관 인기검색어(서브카테고리 cid)로 황금키워드 실데이터화 ③ `analyze` 세분류 비교를 황금키워드 엔진으로 교체.
 
 - **결정됨 (2026-06-18):**

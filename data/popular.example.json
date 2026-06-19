@@ -1,0 +1,23 @@
+{
+  "_README": "이 파일을 data/popular.json 으로 복사한 뒤 실제 데이터로 채워 커밋하면, 라이브 크롤이 막힌 환경에서도 사이트가 이 스냅샷을 '실데이터'로 보여줍니다. (소스 우선순위: 라이브 크롤 → 이 스냅샷 → 샘플). 생성: `node scripts/fetch-popular.mjs > data/popular.json` (egress 안 막힌 PC에서) 또는 엑셀 VBA/파이썬으로 같은 형식 작성.",
+  "asOf": "2026-06-19",
+  "cid": "50000159",
+  "ranks": [
+    { "rank": 1, "keyword": "수박" },
+    { "rank": 2, "keyword": "참외" },
+    { "rank": 3, "keyword": "복숭아" },
+    { "rank": 4, "keyword": "샤인머스캣" },
+    { "rank": 5, "keyword": "자두" }
+  ],
+  "related": {
+    "수박": [
+      { "rank": 1, "keyword": "꿀수박" },
+      { "rank": 2, "keyword": "씨없는수박" },
+      { "rank": 3, "keyword": "복수박" }
+    ],
+    "참외": [
+      { "rank": 1, "keyword": "성주참외" },
+      { "rank": 2, "keyword": "꿀참외" }
+    ]
+  }
+}

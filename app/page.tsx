@@ -49,8 +49,14 @@ export default function Home() {
   );
 }
 
+const POPULAR_NOTE: Record<'datalab' | 'snapshot' | 'sample', string> = {
+  datalab: '※ 네이버 데이터랩 쇼핑인사이트(과일) 인기검색어 — 최근 30일 기준.',
+  snapshot: '※ 데이터랩 인기검색어 스냅샷(수동 임포트) 실데이터.',
+  sample: '※ 통념 기반 샘플 미리보기. 라이브 크롤(또는 data/popular.json 스냅샷)이 있으면 실데이터로 전환됩니다.',
+};
+
 async function PopularInsights() {
-  const { source, ranks, golden } = await getPopularInsights(10);
+  const { source, asOf, ranks, golden } = await getPopularInsights(10);
   return (
     <>
       <section>
@@ -67,9 +73,8 @@ async function PopularInsights() {
           ))}
         </ol>
         <p className="hint">
-          {source === 'datalab'
-            ? '※ 네이버 데이터랩 쇼핑인사이트(과일) 인기검색어 — 최근 30일 기준.'
-            : '※ 통념 기반 샘플 미리보기. 데이터랩 크롤이 가능한 환경에서 실데이터로 전환됩니다.'}
+          {POPULAR_NOTE[source]}
+          {source === 'snapshot' && asOf ? ` (${asOf} 기준)` : ''}
         </p>
       </section>
 
