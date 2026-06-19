@@ -22,14 +22,17 @@ export function hasNaverKeys(): boolean {
   return Boolean(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET);
 }
 
-// 최근 24개월(이번 달 포함)의 시작/종료일 문자열을 만든다.
+// 최근 24개월(오늘까지)의 시작/종료일 문자열을 만든다.
+// ⚠️ 네이버는 endDate 가 '미래'면 요청을 거부한다 → 반드시 오늘(또는 과거)로.
+//    (이전엔 이번 달 말일=미래로 보내 일별 호출이 매번 실패 → 샘플 폴백되는 버그가 있었음)
 // 네이버 검색어트렌드는 2016-01-01 이후 데이터를 제공하므로 24개월은 항상 범위 내.
 function lastTwentyFourMonthsRange(): { startDate: string; endDate: string } {
   const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0); // 이번 달 말일까지
   const start = new Date(now.getFullYear(), now.getMonth() - 23, 1); // 23개월 전 1일
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { startDate: fmt(start), endDate: fmt(end) };
+  // 로컬 타임존으로 인한 날짜 밀림 방지: 연/월/일을 직접 포맷.
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { startDate: fmt(start), endDate: fmt(now) };
 }
 
 // 검색어 트렌드 API로 상대 검색 지수를 가져온다(기본: 일별).
