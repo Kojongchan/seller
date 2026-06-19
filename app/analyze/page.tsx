@@ -8,6 +8,7 @@ import {
   Line,
   LineChart,
   ReferenceArea,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,7 +20,8 @@ import type { Grade, PeakForecast, YoyTrend } from '@/lib/grade';
 
 interface SeriesPoint {
   period: string; // 'YYYY-MM-DD'(일별) 또는 'YYYY-MM'(월별)
-  ratio: number;
+  ratio: number | null; // 실측(과거~오늘)
+  forecast: number | null; // 예측(오늘~연말)
   monthIndex: number;
 }
 
@@ -31,6 +33,7 @@ interface TrendResponse {
   granularity?: 'daily' | 'monthly';
   series: SeriesPoint[];
   peakMonths: string[];
+  forecastPeakPoint: { period: string; ratio: number } | null;
   summary: {
     currentIndex: number;
     currentPeriod: string | null;
@@ -184,15 +187,17 @@ function Analysis({ data }: { data: TrendResponse }) {
         />
       </section>
 
-      {/* 3. 2년 추이 차트 (일별 선) */}
+      {/* 3. 3개년 추이 차트 (재작년·작년·올해 1~12월, 미래는 예측) */}
       <section>
-        <h2 className="section-title">📈 2년 검색 추이 {data.granularity === 'daily' ? '(일별)' : '(월별·샘플)'}</h2>
+        <h2 className="section-title">📈 3개년 검색 추이 {data.granularity === 'daily' ? '(일별)' : '(월별·샘플)'}</h2>
         <div className="card">
           <TrendChart data={data} />
           <p className="hint">
-            <span className="dot red" /> 성수기 구간 &nbsp;
-            <span className="dot blue-line" /> 작년 피크일 &nbsp;
-            <span className="dot amber-line" /> 재작년 피크일 &nbsp;· 좌(과거)→우(최근), 상대지수(최댓값=100)
+            <span className="dot slate" /> 재작년 &nbsp;
+            <span className="dot indigo" /> 작년 &nbsp;
+            <span className="dot white-box" /> 올해(현재+예측) &nbsp;
+            <span className="dot red" /> 성수기 &nbsp;
+            <span className="dot green-line" /> 예측·예상 피크 &nbsp;· 실선=실측, 점선=예측, 상대지수(최댓값=100)
           </p>
         </div>
       </section>
@@ -353,11 +358,26 @@ function monthlyTicks(series: SeriesPoint[]): string[] {
   return ticks;
 }
 
+// 특정 달력연도(year)가 차지하는 X축 구간(첫·끝 period). 없으면 null.
+function yearBand(series: SeriesPoint[], year: number): { x1: string; x2: string } | null {
+  const inYear = series.filter((p) => Number(p.period.slice(0, 4)) === year);
+  if (inYear.length === 0) return null;
+  return { x1: inYear[0].period, x2: inYear[inYear.length - 1].period };
+}
+
 function TrendChart({ data }: { data: TrendResponse }) {
   const peakSet = useMemo(() => new Set(data.peakMonths), [data.peakMonths]);
   const spans = useMemo(() => seasonSpans(data.series, peakSet), [data.series, peakSet]);
   const ticks = useMemo(() => monthlyTicks(data.series), [data.series]);
   const fc = data.forecast;
+  // 올해 = 시리즈에 존재하는 가장 큰 연도(예측이 연말까지 채움).
+  const thisYear = useMemo(
+    () => Math.max(...data.series.map((p) => Number(p.period.slice(0, 4)))),
+    [data.series],
+  );
+  const prevBand = useMemo(() => yearBand(data.series, thisYear - 2), [data.series, thisYear]);
+  const lastBand = useMemo(() => yearBand(data.series, thisYear - 1), [data.series, thisYear]);
+  const peakPt = data.forecastPeakPoint;
 
   return (
     <div className="chart">
@@ -367,21 +387,17 @@ function TrendChart({ data }: { data: TrendResponse }) {
           <XAxis dataKey="period" ticks={ticks} interval={0} tickFormatter={monthTick} tick={{ fontSize: 10 }} />
           <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
           <Tooltip
-            formatter={(v: number) => [`${v}`, '검색지수']}
+            formatter={(v: number, name) => [`${v}`, name === 'forecast' ? '예상 지수' : '검색지수']}
             labelFormatter={(p) => `${p}`}
             cursor={{ stroke: 'rgba(37,99,235,0.3)' }}
           />
+          {/* 연도 배경: 재작년·작년만 음영, 올해(현재+미래)는 흰색 */}
+          {prevBand && <ReferenceArea x1={prevBand.x1} x2={prevBand.x2} fill="#eef1f5" fillOpacity={0.9} ifOverflow="extendDomain" />}
+          {lastBand && <ReferenceArea x1={lastBand.x1} x2={lastBand.x2} fill="#e8edff" fillOpacity={0.9} ifOverflow="extendDomain" />}
+          {/* 성수기 구간(연도별 반복) */}
           {spans.map((s) => (
-            <ReferenceArea key={s.x1} x1={s.x1} x2={s.x2} fill="#fecaca" fillOpacity={0.45} ifOverflow="extendDomain" />
+            <ReferenceArea key={s.x1} x1={s.x1} x2={s.x2} fill="#fecaca" fillOpacity={0.4} ifOverflow="extendDomain" />
           ))}
-          {fc?.lastYearPeak && (
-            <ReferenceLine
-              x={fc.lastYearPeak.period}
-              stroke="#1d4ed8"
-              strokeDasharray="4 2"
-              label={{ value: '작년 피크', fontSize: 10, fill: '#1d4ed8', position: 'top' }}
-            />
-          )}
           {fc?.prevYearPeak && (
             <ReferenceLine
               x={fc.prevYearPeak.period}
@@ -390,7 +406,26 @@ function TrendChart({ data }: { data: TrendResponse }) {
               label={{ value: '재작년', fontSize: 10, fill: '#f59e0b', position: 'top' }}
             />
           )}
-          <Line type="linear" dataKey="ratio" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          {fc?.lastYearPeak && (
+            <ReferenceLine
+              x={fc.lastYearPeak.period}
+              stroke="#1d4ed8"
+              strokeDasharray="4 2"
+              label={{ value: '작년 피크', fontSize: 10, fill: '#1d4ed8', position: 'top' }}
+            />
+          )}
+          {peakPt && (
+            <ReferenceLine
+              x={peakPt.period}
+              stroke="#16a34a"
+              strokeDasharray="4 2"
+              label={{ value: '예상 피크', fontSize: 10, fill: '#16a34a', position: 'top' }}
+            />
+          )}
+          {peakPt && <ReferenceDot x={peakPt.period} y={peakPt.ratio} r={4} fill="#16a34a" stroke="#fff" strokeWidth={1.5} />}
+          {/* 실측(실선) + 예측(점선) */}
+          <Line type="linear" dataKey="ratio" stroke="#2563eb" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />
+          <Line type="linear" dataKey="forecast" stroke="#16a34a" strokeWidth={1.8} strokeDasharray="5 3" dot={false} connectNulls={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

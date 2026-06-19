@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildForecastSeries,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
@@ -150,6 +151,38 @@ test('computeYoyTrend: 작년 동월 없으면 flat/null', () => {
   const yoy = computeYoyTrend([{ period: '2026-06-10', ratio: 80 }]);
   assert.equal(yoy.direction, 'flat');
   assert.equal(yoy.deltaPct, null);
+});
+
+// 2024-01-01 ~ 2026-06-19, 베이스 10 + 해마다 8/15 피크(2024=40, 2025=80).
+function dailyThreeYears(): TrendPoint[] {
+  const out: TrendPoint[] = [];
+  const start = new Date(2024, 0, 1);
+  const end = new Date(2026, 5, 19);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const y = d.getFullYear();
+    const md = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    let ratio = 10;
+    if (md === '08-15') ratio = y === 2024 ? 40 : y === 2025 ? 80 : 10;
+    out.push({ period: `${y}-${md}`, ratio });
+  }
+  return out;
+}
+
+test('buildForecastSeries: 오늘 이후~연말, 0~100, 작년 모멘텀 반영 피크', () => {
+  const now = new Date(2026, 5, 19); // 2026-06-19
+  const fc = buildForecastSeries(dailyThreeYears(), now);
+  assert.ok(fc.length > 0);
+  assert.equal(fc[0].period, '2026-06-20'); // 오늘 다음날부터
+  assert.equal(fc[fc.length - 1].period, '2026-12-31'); // 연말까지
+  assert.ok(fc.every((p) => p.ratio >= 0 && p.ratio <= 100)); // 100 상한
+  // 작년(80)을 재작년 대비 성장(×2, 클램프)으로 보정 → 8/15 부근 100으로 피크.
+  const peak = fc.reduce((m, p) => (p.ratio > m.ratio ? p : m));
+  assert.equal(peak.period.slice(5, 7), '08');
+  assert.equal(peak.ratio, 100);
+});
+
+test('buildForecastSeries: 데이터 없으면 빈 배열', () => {
+  assert.deepEqual(buildForecastSeries([], new Date(2026, 5, 19)), []);
 });
 
 test('gradeFromTrend: 점수 0~100, 등급·산식 일관성', () => {

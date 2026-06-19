@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getFruit, type Fruit } from '@/lib/fruits';
+import { type Fruit } from '@/lib/fruits';
 import { fetchSearchTrend, hasNaverKeys } from '@/lib/naver';
 import { resolveKeyword } from '@/lib/keywords';
 import {
+  buildForecastSeries,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
   seasonalProfile,
+  type ForecastPoint,
   type TrendPoint,
 } from '@/lib/grade';
 
@@ -17,50 +19,50 @@ import {
 // 응답:
 // { query, name, source: 'naver'|'sample'|'none', message?,
 //   granularity: 'daily'|'monthly',
-//   series: [{ period, ratio, monthIndex }],   // naver=일별, sample=월별
-//   peakMonths: string[], summary, forecast, grade, debug? }
+//   series: [{ period, ratio, forecast, monthIndex }],  // ratio=실측, forecast=예측
+//   peakMonths: string[], forecastPeakPoint, summary, forecast, grade, debug? }
+//
+// 차트 기준: 재작년·작년·올해(1~12월) 3개 달력연도. 실측은 재작년 1/1~오늘,
+// 올해 오늘 이후 ~ 12월 말은 재작년→작년 모멘텀으로 보정한 예측선.
 
 const MONTH_LABELS = [
   '1월', '2월', '3월', '4월', '5월', '6월',
   '7월', '8월', '9월', '10월', '11월', '12월',
 ];
 
-// 차트/분석 공용 시리즈 포인트. period 는 일별('YYYY-MM-DD') 또는 월별('YYYY-MM').
-interface SeriesPoint {
+// 차트 포인트. period 는 일별('YYYY-MM-DD') 또는 월별('YYYY-MM').
+// ratio=실측(과거~오늘), forecast=예측(오늘~연말). 이음새 1점은 둘 다 채워 연결.
+interface ChartPoint {
   period: string;
-  ratio: number; // 0~100
+  ratio: number | null;
+  forecast: number | null;
   monthIndex: number; // 0~11
 }
 
-function toSeriesPoint(period: string, ratio: number): SeriesPoint {
-  return {
-    period,
-    ratio: Math.round(ratio),
-    monthIndex: Number(period.slice(5, 7)) - 1,
-  };
+function monthIndexOfPeriod(period: string): number {
+  return Number(period.slice(5, 7)) - 1;
 }
 
-// 이번 달 포함, 최근 count개월의 'YYYY-MM' 목록(오름차순).
-function recentMonths(count: number, now = new Date()): string[] {
-  const out: string[] = [];
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+// 실측 + 예측을 하나의 시리즈로 합친다(기간 오름차순).
+function buildChartSeries(real: TrendPoint[], fc: ForecastPoint[]): ChartPoint[] {
+  const pts: ChartPoint[] = real.map((t) => ({
+    period: t.period,
+    ratio: Math.round(t.ratio),
+    forecast: null,
+    monthIndex: monthIndexOfPeriod(t.period),
+  }));
+  // 이음새: 마지막 실측점에 forecast=실측값을 넣어 실선↔점선을 연결.
+  if (pts.length && fc.length) pts[pts.length - 1].forecast = pts[pts.length - 1].ratio;
+  for (const f of fc) {
+    pts.push({ period: f.period, ratio: null, forecast: f.ratio, monthIndex: monthIndexOfPeriod(f.period) });
   }
-  return out;
+  pts.sort((a, b) => a.period.localeCompare(b.period));
+  return pts;
 }
 
-// 샘플(달력 12값) → 최근 24개월 period 시리즈로 확장.
-function sampleSeries(fruit: Fruit, now = new Date()): SeriesPoint[] {
-  return recentMonths(24, now).map((period) => {
-    const monthIndex = Number(period.slice(5, 7)) - 1;
-    return toSeriesPoint(period, fruit.sample[monthIndex]);
-  });
-}
-
-// 시즌 프로파일에서 피크(최댓값의 70% 이상) 달력월 라벨 추출.
-function peakMonthLabels(series: SeriesPoint[]): string[] {
-  const profile = seasonalProfile(series as TrendPoint[]);
+// 시즌 프로파일에서 피크(최댓값의 70% 이상) 달력월 라벨 추출. (실측+예측 합산 기준)
+function peakMonthLabels(series: TrendPoint[]): string[] {
+  const profile = seasonalProfile(series);
   const max = Math.max(...profile);
   if (max <= 0) return [];
   const threshold = max * 0.7;
@@ -69,16 +71,32 @@ function peakMonthLabels(series: SeriesPoint[]): string[] {
     .filter((v): v is string => v !== null);
 }
 
-function analysisPayload(series: SeriesPoint[], now: Date, granularity: 'daily' | 'monthly') {
-  const points = series as TrendPoint[];
-  const forecast = computePeakForecast(points, now);
-  const yoy = computeYoyTrend(points);
-  const grade = gradeFromTrend(points, now);
-  const current = series.length ? series[series.length - 1] : null;
+// 올해 3개 달력연도 월별 실측 시리즈(재작년·작년 전체 + 올해 이번 달까지)를 샘플로 합성.
+function sampleRealSeries(fruit: Fruit, now: Date): TrendPoint[] {
+  const thisYear = now.getFullYear();
+  const out: TrendPoint[] = [];
+  for (let y = thisYear - 2; y <= thisYear; y++) {
+    const lastMonth = y < thisYear ? 11 : now.getMonth(); // 올해는 이번 달까지만 실측
+    for (let m = 0; m <= lastMonth; m++) {
+      out.push({ period: `${y}-${String(m + 1).padStart(2, '0')}`, ratio: fruit.sample[m] });
+    }
+  }
+  return out;
+}
+
+function analysisPayload(real: TrendPoint[], now: Date, granularity: 'daily' | 'monthly') {
+  const fc = buildForecastSeries(real, now);
+  const forecast = computePeakForecast(real, now);
+  const yoy = computeYoyTrend(real);
+  const grade = gradeFromTrend(real, now);
+  const current = real.length ? real[real.length - 1] : null;
+  // 예측 곡선의 최고점 = 차트에 찍을 '예상 피크점'.
+  const peakPoint = fc.length ? fc.reduce((m, p) => (p.ratio > m.ratio ? p : m)) : null;
   return {
     granularity,
-    series,
-    peakMonths: peakMonthLabels(series),
+    series: buildChartSeries(real, fc),
+    peakMonths: peakMonthLabels([...real, ...fc]),
+    forecastPeakPoint: peakPoint ? { period: peakPoint.period, ratio: peakPoint.ratio } : null,
     summary: {
       // 일별은 노이즈가 커서 '현재 검색지수'는 최신 월 평균(yoy.current)을 사용.
       currentIndex: yoy.current,
@@ -111,13 +129,13 @@ export async function GET(req: Request) {
     try {
       const trend = await fetchSearchTrend(keyword);
       if (trend && trend.length > 0) {
-        const series = trend.map((t) => toSeriesPoint(t.period, t.ratio));
+        const real: TrendPoint[] = trend.map((t) => ({ period: t.period, ratio: t.ratio }));
         return NextResponse.json({
           query: keyword,
           name: keyword,
           source: 'naver',
-          ...analysisPayload(series, now, 'daily'),
-          ...(debug ? { debug: { hasKeys: true, apiNote: 'ok', points: series.length } } : {}),
+          ...analysisPayload(real, now, 'daily'),
+          ...(debug ? { debug: { hasKeys: true, apiNote: 'ok', points: real.length } } : {}),
         });
       }
       // 빈 응답 → 폴백으로 진행
@@ -141,12 +159,12 @@ function fallback(
   apiNote: string,
 ) {
   if (fruit) {
-    const series = sampleSeries(fruit, now);
+    const real = sampleRealSeries(fruit, now);
     return NextResponse.json({
       query: keyword,
       name: fruit.name,
       source: 'sample',
-      ...analysisPayload(series, now, 'monthly'),
+      ...analysisPayload(real, now, 'monthly'),
       ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote, keyInfo: keyDiagnostics(), sampleFruit: fruit.id } } : {}),
     });
   }
@@ -160,6 +178,7 @@ function fallback(
     granularity: 'monthly',
     series: [],
     peakMonths: [],
+    forecastPeakPoint: null,
     summary: { currentIndex: 0, currentPeriod: null, yoy: { direction: 'flat', current: 0, lastYear: null, deltaPct: null } },
     forecast: null,
     grade: null,
