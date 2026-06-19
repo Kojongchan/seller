@@ -81,7 +81,15 @@ section {
   border-radius: 16px;
   padding: 20px 12px 16px;
   cursor: pointer;
+  text-decoration: none;
+  color: inherit;
   transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+}
+
+.rec-skeleton {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: default;
 }
 
 .rec-card:hover {
@@ -274,6 +282,8 @@ section {
   padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
   transition: background 0.15s;
 }
 
