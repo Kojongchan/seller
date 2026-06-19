@@ -335,7 +335,7 @@ function TrendChart({ data }: { data: TrendResponse }) {
               label={{ value: '재작년', fontSize: 10, fill: '#f59e0b', position: 'top' }}
             />
           )}
-          <Line type="monotone" dataKey="ratio" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line type="linear" dataKey="ratio" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
