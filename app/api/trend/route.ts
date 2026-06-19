@@ -86,17 +86,20 @@ function sampleRealSeries(fruit: Fruit, now: Date): TrendPoint[] {
 
 function analysisPayload(real: TrendPoint[], now: Date, granularity: 'daily' | 'monthly') {
   const fc = buildForecastSeries(real, now);
-  const forecast = computePeakForecast(real, now);
+  const forecast = computePeakForecast(real, now, fc);
   const yoy = computeYoyTrend(real);
   const grade = gradeFromTrend(real, now);
   const current = real.length ? real[real.length - 1] : null;
-  // 예측 곡선의 최고점 = 차트에 찍을 '예상 피크점'.
-  const peakPoint = fc.length ? fc.reduce((m, p) => (p.ratio > m.ratio ? p : m)) : null;
+  // 차트에 찍을 '예상 피크점' = 카드와 동일한 (예측 곡선 기준) 피크.
+  const forecastPeakPoint =
+    forecast.projectedPeakRatio != null
+      ? { period: forecast.forecastPeak, ratio: forecast.projectedPeakRatio }
+      : null;
   return {
     granularity,
     series: buildChartSeries(real, fc),
     peakMonths: peakMonthLabels([...real, ...fc]),
-    forecastPeakPoint: peakPoint ? { period: peakPoint.period, ratio: peakPoint.ratio } : null,
+    forecastPeakPoint,
     summary: {
       // 일별은 노이즈가 커서 '현재 검색지수'는 최신 월 평균(yoy.current)을 사용.
       currentIndex: yoy.current,
