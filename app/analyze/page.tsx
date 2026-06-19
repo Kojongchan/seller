@@ -210,7 +210,7 @@ function Analysis({ data }: { data: TrendResponse }) {
               <b>올해 예상 피크지수</b>
               <span>
                 {forecast.projectedPeakRatio ?? forecast.peakRatio}
-                {forecast.projectedPeakRatio != null && forecast.projectedPeakRatio > 100 && ' · 역대 최고 경신 기대'}
+                {forecast.projectedPeakRatio === 100 && forecast.yoyGrowthPct != null && forecast.yoyGrowthPct > 0 && ' · 역대 최고 수준 기대'}
               </span>
             </div>
             <div className="peak-line">
