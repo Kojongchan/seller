@@ -166,7 +166,11 @@ function Analysis({ data }: { data: TrendResponse }) {
         <Metric
           label="예상 피크"
           value={forecast ? forecast.peakDateLabel : '—'}
-          sub={forecast ? `피크월 평균지수 ${forecast.peakRatio}` : ''}
+          sub={
+            forecast
+              ? `예상 피크지수 ${forecast.projectedPeakRatio ?? forecast.peakRatio}`
+              : ''
+          }
         />
         <Metric
           label="피크까지"
@@ -193,7 +197,7 @@ function Analysis({ data }: { data: TrendResponse }) {
         </div>
       </section>
 
-      {/* 4. 시즌 피크 예측 */}
+      {/* 4. 시즌 피크 예측 (재작년→작년 모멘텀 반영) */}
       {forecast && (
         <section>
           <h2 className="section-title">🗓️ 시즌 피크 예측</h2>
@@ -203,8 +207,19 @@ function Analysis({ data }: { data: TrendResponse }) {
               <span>{forecast.peakDateLabel} ({forecast.forecastPeak}) · D-{forecast.dday}</span>
             </div>
             <div className="peak-line">
-              <b>피크월 평균지수</b>
-              <span>{forecast.peakMonthLabel} · {forecast.peakRatio}</span>
+              <b>올해 예상 피크지수</b>
+              <span>
+                {forecast.projectedPeakRatio ?? forecast.peakRatio}
+                {forecast.projectedPeakRatio != null && forecast.projectedPeakRatio > 100 && ' · 역대 최고 경신 기대'}
+              </span>
+            </div>
+            <div className="peak-line">
+              <b>지수 모멘텀</b>
+              <span>{momentumText(forecast)}</span>
+            </div>
+            <div className="peak-line">
+              <b>피크 시점 추이</b>
+              <span>{shiftText(forecast)}</span>
             </div>
             <div className="peak-line">
               <b>작년 피크</b>
@@ -215,6 +230,7 @@ function Analysis({ data }: { data: TrendResponse }) {
               <span>{forecast.prevYearPeak ? `${forecast.prevYearPeak.dateLabel} (지수 ${forecast.prevYearPeak.ratio})` : '데이터 부족'}</span>
             </div>
           </div>
+          <p className="hint">{BASIS_NOTE[forecast.basis]}</p>
         </section>
       )}
 
@@ -274,6 +290,29 @@ function yoyArrow(yoy: YoyTrend): string {
   return '→ 보합';
 }
 
+// 예측 근거별 신뢰도 안내(시즌 피크 예측 카드 하단).
+const BASIS_NOTE: Record<PeakForecast['basis'], string> = {
+  yoy: '※ 2년 실데이터 기반: 재작년→작년의 실제 변화(지수·시점)를 올해로 한 번 더 투영한 예상치입니다.',
+  lastyear: '※ 작년 1년치만 있어 작년 패턴을 그대로 투영했습니다. 2년치가 쌓이면 모멘텀까지 반영됩니다.',
+  profile: '※ 일자 단위 피크가 없어 시즌 평균(피크월)으로 추정한 값입니다.',
+};
+
+// "재작년 60 → 작년 90 (+50%) → 올해 예상 135"
+function momentumText(fc: PeakForecast): string {
+  if (fc.yoyGrowthPct == null || !fc.prevYearPeak || !fc.lastYearPeak) return '비교 데이터 부족 (2년치 필요)';
+  const sign = fc.yoyGrowthPct > 0 ? '+' : '';
+  const proj = fc.projectedPeakRatio ?? fc.lastYearPeak.ratio;
+  return `재작년 ${fc.prevYearPeak.ratio} → 작년 ${fc.lastYearPeak.ratio} (${sign}${fc.yoyGrowthPct}%) → 올해 예상 ${proj}`;
+}
+
+// "작년 피크가 재작년보다 10일 늦어짐 → 올해 반영"
+function shiftText(fc: PeakForecast): string {
+  if (fc.peakShiftDays == null) return '비교 데이터 부족 (2년치 필요)';
+  if (fc.peakShiftDays === 0) return '작년·재작년 피크 시점 동일 → 올해도 비슷한 시점 예상';
+  const dir = fc.peakShiftDays > 0 ? '늦어짐' : '빨라짐';
+  return `작년 피크가 재작년보다 ${Math.abs(fc.peakShiftDays)}일 ${dir} → 올해 반영`;
+}
+
 // 성수기(피크 달력월) 연속 구간을 차트 ReferenceArea 범위로 변환.
 function seasonSpans(series: SeriesPoint[], peakSet: Set<string>): { x1: string; x2: string }[] {
   const spans: { x1: string; x2: string }[] = [];
@@ -293,15 +332,31 @@ function seasonSpans(series: SeriesPoint[], peakSet: Set<string>): { x1: string;
   return spans;
 }
 
+// 1월은 연도(예: '25), 나머지는 월 숫자만 → 1개월 단위 눈금을 빽빽하지 않게.
 function monthTick(period: string): string {
-  const yy = period.slice(2, 4);
   const m = Number(period.slice(5, 7));
-  return `${yy}.${m}`;
+  if (m === 1) return `'${period.slice(2, 4)}`;
+  return `${m}`;
+}
+
+// 시리즈에서 달(YYYY-MM)별 첫 포인트만 골라 X축 눈금으로 → 1개월 단위로 표시.
+function monthlyTicks(series: SeriesPoint[]): string[] {
+  const seen = new Set<string>();
+  const ticks: string[] = [];
+  for (const p of series) {
+    const key = p.period.slice(0, 7);
+    if (!seen.has(key)) {
+      seen.add(key);
+      ticks.push(p.period);
+    }
+  }
+  return ticks;
 }
 
 function TrendChart({ data }: { data: TrendResponse }) {
   const peakSet = useMemo(() => new Set(data.peakMonths), [data.peakMonths]);
   const spans = useMemo(() => seasonSpans(data.series, peakSet), [data.series, peakSet]);
+  const ticks = useMemo(() => monthlyTicks(data.series), [data.series]);
   const fc = data.forecast;
 
   return (
@@ -309,7 +364,7 @@ function TrendChart({ data }: { data: TrendResponse }) {
       <ResponsiveContainer>
         <LineChart data={data.series} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f3" />
-          <XAxis dataKey="period" tickFormatter={monthTick} minTickGap={36} tick={{ fontSize: 11 }} />
+          <XAxis dataKey="period" ticks={ticks} interval={0} tickFormatter={monthTick} tick={{ fontSize: 10 }} />
           <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
           <Tooltip
             formatter={(v: number) => [`${v}`, '검색지수']}
