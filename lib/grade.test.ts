@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildForecast,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
@@ -93,6 +94,21 @@ test('computeYoyTrend: 작년 동월 없으면 flat/null', () => {
   const yoy = computeYoyTrend([{ period: '2026-06-10', ratio: 80 }]);
   assert.equal(yoy.direction, 'flat');
   assert.equal(yoy.deltaPct, null);
+});
+
+test('buildForecast: 오늘 이후 미래 일자 + 시즌 패턴 투영', () => {
+  const now = new Date(2026, 5, 19); // 6월 19일
+  const fc = buildForecast(dailySummerSeries(), now, 60);
+  assert.ok(fc.length > 0);
+  // 모두 미래(오늘 이후) 일자
+  assert.ok(fc.every((p) => p.period > '2026-06-19'));
+  // 7월 15일 예상치는 과거 피크(100)를 투영 → 100
+  const jul15 = fc.find((p) => p.period === '2026-07-15');
+  assert.ok(jul15 && jul15.ratio === 100);
+});
+
+test('buildForecast: 빈 시리즈는 빈 배열', () => {
+  assert.deepEqual(buildForecast([], new Date(2026, 5, 19)), []);
 });
 
 test('gradeFromTrend: 점수 0~100, 등급·산식 일관성', () => {

@@ -3,6 +3,7 @@ import { getFruit, type Fruit } from '@/lib/fruits';
 import { fetchSearchTrend, hasNaverKeys } from '@/lib/naver';
 import { resolveKeyword } from '@/lib/keywords';
 import {
+  buildForecast,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
@@ -75,9 +76,16 @@ function analysisPayload(series: SeriesPoint[], now: Date, granularity: 'daily' 
   const yoy = computeYoyTrend(points);
   const grade = gradeFromTrend(points, now);
   const current = series.length ? series[series.length - 1] : null;
+  // 오늘 이후 예상치(점선 구간). 일별=183일, 월별=동일 헬퍼가 월 단위로 처리.
+  const forecastSeries = buildForecast(points, now).map((p) => ({
+    period: p.period,
+    ratio: p.ratio,
+    monthIndex: Number(p.period.slice(5, 7)) - 1,
+  }));
   return {
     granularity,
     series,
+    forecastSeries,
     peakMonths: peakMonthLabels(series),
     summary: {
       // 일별은 노이즈가 커서 '현재 검색지수'는 최신 월 평균(yoy.current)을 사용.
@@ -159,6 +167,7 @@ function fallback(
     message: '네이버 검색어트렌드 키가 없어 실데이터를 불러올 수 없습니다. 샘플은 16개 대표 과일에만 제공됩니다. 키 연결 시 임의 키워드도 분석됩니다.',
     granularity: 'monthly',
     series: [],
+    forecastSeries: [],
     peakMonths: [],
     summary: { currentIndex: 0, currentPeriod: null, yoy: { direction: 'flat', current: 0, lastYear: null, deltaPct: null } },
     forecast: null,
