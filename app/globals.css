@@ -712,6 +712,116 @@ section {
 }
 .entry-meta b { color: #0f172a; }
 
+/* 인기검색어 TOP */
+.popular-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+}
+.popular-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #eceef1;
+  border-radius: 12px;
+  padding: 11px 14px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+.popular-row:hover {
+  border-color: #2563eb;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.1);
+  transform: translateY(-1px);
+}
+.pop-rank {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #eef1f5;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pop-rank.top {
+  background: #f59e0b;
+  color: #fff;
+}
+.pop-kw {
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 700;
+}
+.pop-go {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.popular-row:hover .pop-go {
+  color: #2563eb;
+}
+
+/* 황금키워드 */
+.golden-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.golden-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #fffdf5;
+  border: 1px solid #f3e6bf;
+  border-radius: 14px;
+  padding: 14px 14px 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+.golden-card:hover {
+  transform: translateY(-2px);
+  border-color: #d4a017;
+  box-shadow: 0 6px 18px rgba(212, 160, 23, 0.16);
+}
+.golden-card.golden-related {
+  background: #fff;
+  border-color: #eceef1;
+}
+.golden-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.golden-kw {
+  font-size: 16px;
+  font-weight: 800;
+}
+.golden-tag {
+  font-size: 10px;
+  font-weight: 800;
+  color: #b45309;
+  background: #fde68a;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.golden-parent {
+  font-size: 12px;
+  color: #6b7280;
+}
+.golden-reason {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.5;
+}
+
 /* 모바일 */
 @media (max-width: 560px) {
   .hero h1 {
@@ -731,5 +841,11 @@ section {
   }
   .cbar-row {
     grid-template-columns: 96px 1fr 56px;
+  }
+  .popular-list {
+    grid-template-columns: 1fr;
+  }
+  .golden-grid {
+    grid-template-columns: 1fr;
   }
 }
