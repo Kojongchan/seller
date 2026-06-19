@@ -30,6 +30,7 @@ interface TrendResponse {
   message?: string;
   granularity?: 'daily' | 'monthly';
   series: SeriesPoint[];
+  forecastSeries: SeriesPoint[];
   peakMonths: string[];
   summary: {
     currentIndex: number;
@@ -186,9 +187,11 @@ function Analysis({ data }: { data: TrendResponse }) {
         <div className="card">
           <TrendChart data={data} />
           <p className="hint">
-            <span className="dot red" /> 성수기 구간 &nbsp;
-            <span className="dot blue-line" /> 작년 피크일 &nbsp;
-            <span className="dot amber-line" /> 재작년 피크일 &nbsp;· 좌(과거)→우(최근), 상대지수(최댓값=100)
+            <span className="dot blue-solid" /> 실데이터 &nbsp;
+            <span className="dot green-line" /> 예측(예상치) &nbsp;
+            <span className="dot red" /> 성수기 &nbsp;
+            <span className="dot blue-line" /> 작년 피크 &nbsp;
+            <span className="dot amber-line" /> 재작년 피크 &nbsp;· 좌(과거)→우(미래), 상대지수(최댓값=100)
           </p>
         </div>
       </section>
@@ -299,20 +302,44 @@ function monthTick(period: string): string {
   return `${yy}.${m}`;
 }
 
+interface ChartPoint {
+  period: string;
+  monthIndex: number;
+  ratio: number | null; // 실데이터
+  forecast: number | null; // 예상치
+}
+
 function TrendChart({ data }: { data: TrendResponse }) {
   const peakSet = useMemo(() => new Set(data.peakMonths), [data.peakMonths]);
   const spans = useMemo(() => seasonSpans(data.series, peakSet), [data.series, peakSet]);
   const fc = data.forecast;
 
+  // 실데이터 + 예상치를 하나의 데이터셋으로 병합(경계점은 두 선을 잇기 위해 양쪽 값 보유).
+  const chartData = useMemo<ChartPoint[]>(() => {
+    const map = new Map<string, ChartPoint>();
+    for (const p of data.series) {
+      map.set(p.period, { period: p.period, monthIndex: p.monthIndex, ratio: p.ratio, forecast: null });
+    }
+    for (const p of data.forecastSeries) {
+      map.set(p.period, { period: p.period, monthIndex: p.monthIndex, ratio: null, forecast: p.ratio });
+    }
+    const lastActual = data.series[data.series.length - 1];
+    if (lastActual) {
+      const join = map.get(lastActual.period);
+      if (join) join.forecast = lastActual.ratio; // 실선↔점선 연결
+    }
+    return [...map.values()].sort((a, b) => a.period.localeCompare(b.period));
+  }, [data.series, data.forecastSeries]);
+
   return (
     <div className="chart">
       <ResponsiveContainer>
-        <LineChart data={data.series} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f3" />
           <XAxis dataKey="period" tickFormatter={monthTick} minTickGap={36} tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
           <Tooltip
-            formatter={(v: number) => [`${v}`, '검색지수']}
+            formatter={(v: number, name) => [`${v}`, name === 'forecast' ? '예상치' : '검색지수']}
             labelFormatter={(p) => `${p}`}
             cursor={{ stroke: 'rgba(37,99,235,0.3)' }}
           />
@@ -335,7 +362,16 @@ function TrendChart({ data }: { data: TrendResponse }) {
               label={{ value: '재작년', fontSize: 10, fill: '#f59e0b', position: 'top' }}
             />
           )}
-          <Line type="linear" dataKey="ratio" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          {fc && fc.forecastPeak && (
+            <ReferenceLine
+              x={fc.forecastPeak}
+              stroke="#059669"
+              strokeDasharray="2 2"
+              label={{ value: '예상 피크', fontSize: 10, fill: '#059669', position: 'top' }}
+            />
+          )}
+          <Line type="linear" dataKey="ratio" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} connectNulls={false} />
+          <Line type="linear" dataKey="forecast" stroke="#059669" strokeWidth={1.5} strokeDasharray="5 3" dot={false} isAnimationActive={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

@@ -598,7 +598,19 @@ section {
   border: 2px solid #f59e0b;
 }
 
+.dot.blue-solid {
+  background: #2563eb;
+}
+
 /* 선 차트 범례용 마커 (점선 선분 느낌) */
+.dot.green-line {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed #059669;
+  border-radius: 0;
+  background: none;
+}
+
 .dot.blue-line {
   width: 14px;
   height: 0;

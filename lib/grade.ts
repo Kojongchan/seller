@@ -191,6 +191,56 @@ export function computeYoyTrend(series: TrendPoint[]): YoyTrend {
   return { direction, current, lastYear, deltaPct };
 }
 
+// 오늘 이후 '예상치' 시리즈를 만든다 (1a 시즌 나이브 예측).
+// 같은 달력 위치(일별=MM-DD, 월별=MM)의 과거 1~2년 평균을 미래로 투영한다.
+// 네이버 상대지수는 동일 윈도우로 정규화돼 있어 과거 같은 날 값이 그대로 예상치가 된다.
+export function buildForecast(
+  series: TrendPoint[],
+  now: Date = new Date(),
+  horizonDays = 183,
+): TrendPoint[] {
+  if (series.length === 0) return [];
+  const sorted = sortByPeriod(series);
+  const isDaily = sorted[sorted.length - 1].period.length >= 10;
+
+  // 달력 위치별 과거 지수 모음 → 평균 룩업.
+  const byKey = new Map<string, number[]>();
+  for (const p of sorted) {
+    const key = isDaily ? p.period.slice(5) : p.period.slice(5, 7); // 'MM-DD' | 'MM'
+    const arr = byKey.get(key) ?? [];
+    arr.push(p.ratio);
+    byKey.set(key, arr);
+  }
+  const lookup = (key: string): number | null => {
+    const arr = byKey.get(key);
+    return arr && arr.length ? Math.round(avg(arr)) : null;
+  };
+
+  const out: TrendPoint[] = [];
+  const today = startOfDay(now);
+
+  if (isDaily) {
+    for (let i = 1; i <= horizonDays; i++) {
+      const d = new Date(today.getTime() + i * DAY);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const val = lookup(`${mm}-${dd}`);
+      if (val == null) continue; // 과거 동일 날짜 데이터 없으면 건너뜀(예: 2/29)
+      out.push({ period: `${d.getFullYear()}-${mm}-${dd}`, ratio: val });
+    }
+  } else {
+    const horizonMonths = Math.ceil(horizonDays / 30);
+    for (let i = 1; i <= horizonMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const val = lookup(mm);
+      if (val == null) continue;
+      out.push({ period: `${d.getFullYear()}-${mm}`, ratio: val });
+    }
+  }
+  return out;
+}
+
 export interface GradeResult {
   grade: Grade;
   score: number; // 0~100
