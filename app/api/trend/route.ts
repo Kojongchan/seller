@@ -4,6 +4,7 @@ import { fetchSearchTrend, hasNaverKeys } from '@/lib/naver';
 import { resolveKeyword } from '@/lib/keywords';
 import {
   buildForecastSeries,
+  computeEntrySignal,
   computePeakForecast,
   computeYoyTrend,
   gradeFromTrend,
@@ -100,6 +101,7 @@ function analysisPayload(real: TrendPoint[], now: Date, granularity: 'daily' | '
     series: buildChartSeries(real, fc),
     peakMonths: peakMonthLabels([...real, ...fc]),
     forecastPeakPoint,
+    entry: computeEntrySignal(real, forecast, now, fc),
     summary: {
       // 일별은 노이즈가 커서 '현재 검색지수'는 최신 월 평균(yoy.current)을 사용.
       currentIndex: yoy.current,
@@ -182,6 +184,7 @@ function fallback(
     series: [],
     peakMonths: [],
     forecastPeakPoint: null,
+    entry: null,
     summary: { currentIndex: 0, currentPeriod: null, yoy: { direction: 'flat', current: 0, lastYear: null, deltaPct: null } },
     forecast: null,
     grade: null,
