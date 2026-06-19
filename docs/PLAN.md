@@ -143,6 +143,7 @@
     - **B안(프로덕션):** Vercel 등 egress 허용 환경은 ①로 자동 동작(코드 그대로 배포 가능).
     - **C안(스냅샷 임포트):** egress 막힌 곳에서도 **막히지 않은 PC에서 데이터를 뽑아 `data/popular.json` 으로 커밋**하면 ②로 실데이터 표시. 생성기 `scripts/fetch-popular.mjs`(Node, TOP500 페이지네이션) + 형식/엑셀VBA 안내 `docs/POPULAR_SNAPSHOT.md` + 템플릿 `data/popular.example.json`. 스냅샷 정규화는 `normalizeSnapshot` 순수함수(테스트 3건). 전체 30건 통과.
     - 핵심: 크롤이 "엑셀이라서" 되는 게 아니라 **실행 네트워크가 안 막혀서** 되는 것 → C안은 "막히지 않은 곳에서 뽑아 파일로 주입"으로 정리.
+  - **✅ 자동 최신화 (2026-06-19):** C안의 "수동" 한계 해소. `.github/workflows/refresh-popular.yml` 가 **매일 GitHub 러너(egress 열림)에서 `scripts/fetch-popular.mjs` 크롤 → `data/popular.json` 자동 커밋**(실패 시 검증으로 깨진 데이터 차단, 마지막 정상본 유지). ⚠️ 스케줄 워크플로는 기본 브랜치 머지 후 활성화(수동 `workflow_dispatch` 로 즉시 테스트 가능). **자동의 두 경로 = B(Vercel ISR 6h 재크롤) + C-자동(GH Actions cron). "자동"은 파싱 방식이 아니라 '안 막힌 곳에서 주기 실행'으로 달성.** 상세 `docs/POPULAR_SNAPSHOT.md`.
   - **남은 후속:** ① egress 허용 환경에서 라이브 크롤 실측 검증(응답 스키마·전역순위 확인) ② 연관 인기검색어(서브카테고리 cid)로 황금키워드 실데이터화 ③ `analyze` 세분류 비교를 황금키워드 엔진으로 교체.
 
 - **결정됨 (2026-06-18):**

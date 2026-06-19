@@ -1,0 +1,59 @@
+# 인기검색어 스냅샷 자동 갱신 (C안 자동화).
+# GitHub 러너(인터넷 egress 열림)에서 매일 datalab 을 크롤해 data/popular.json 을
+# 자동 커밋한다. → 사이트는 별도 작업 없이 '스냅샷 실데이터'를 최신으로 유지.
+#
+# ⚠️ 스케줄 워크플로는 '기본 브랜치(main 등)'에서만 동작한다 → 머지 후 활성화.
+#    수동 실행(workflow_dispatch)으로 즉시 테스트 가능.
+name: Refresh popular keywords
+
+on:
+  schedule:
+    - cron: '0 21 * * *' # 매일 06:00 KST (UTC 21:00)
+  workflow_dispatch: {}
+
+# data/popular.json 자동 커밋을 위해 쓰기 권한.
+permissions:
+  contents: write
+
+# 동시 실행 방지(겹치면 뒤엣것 취소).
+concurrency:
+  group: refresh-popular
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 1) 크롤 → 임시 파일. datalab 이 막거나(403) 실패하면 스크립트가 비정상 종료 →
+      #    임시 파일이 비어 다음 검증에서 걸러지므로 깨진 데이터는 커밋되지 않는다.
+      - name: Fetch datalab popular keywords
+        env:
+          CID: '50000159' # 식품>농산물>과일
+          TOP: '500'
+        run: node scripts/fetch-popular.mjs > data/popular.json.tmp
+
+      # 2) 유효성 검증(ranks 존재) 후에만 교체.
+      - name: Validate & replace
+        run: |
+          node -e "const j=require('./data/popular.json.tmp'); if(!Array.isArray(j.ranks)||j.ranks.length===0){console.error('empty ranks');process.exit(1)}"
+          mv data/popular.json.tmp data/popular.json
+
+      # 3) 변경이 있을 때만 커밋·푸시.
+      - name: Commit if changed
+        run: |
+          rm -f data/popular.json.tmp
+          if git diff --quiet -- data/popular.json; then
+            echo "변경 없음 — 커밋 생략"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/popular.json
+          git commit -m "data: 인기검색어 스냅샷 자동 갱신 ($(date -u +%Y-%m-%d))"
+          git push

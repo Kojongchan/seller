@@ -81,3 +81,27 @@ End Sub
 
 > VBA로 page 1~25 반복 + JSON 조립이 번거로우면 Node 스크립트(1번)가 가장 간단하다.
 > 어떤 방법이든 **결과 JSON 형식만 맞추면** 사이트가 자동으로 실데이터로 표시한다.
+
+## 자동 최신화 (수동 X)
+
+스냅샷의 단점은 "수동"이라는 것 → **GitHub Actions 로 자동화**한다.
+`.github/workflows/refresh-popular.yml` 가 **매일 06:00 KST 에 GitHub 러너
+(인터넷 egress 열림)에서** `scripts/fetch-popular.mjs` 를 돌려 `data/popular.json`
+을 **자동 커밋**한다. 사람이 손댈 필요가 없다.
+
+- 크롤이 막히거나(403) 실패하면 임시파일이 비어 검증에서 걸러지므로 **깨진
+  데이터는 커밋되지 않는다**(마지막 정상 스냅샷 유지).
+- ⚠️ 스케줄 워크플로는 **기본 브랜치(main 등)에서만** 동작 → 이 브랜치를 머지해야 켜진다.
+  머지 전 테스트는 Actions 탭에서 **Run workflow(workflow_dispatch)** 로 수동 실행.
+
+### "자동"의 두 경로 정리
+
+| 방법 | 실행 위치 | 자동? | 비고 |
+|---|---|---|---|
+| B. Vercel ISR | Vercel(egress 열림) | ✅ 6h마다 자동 재크롤 | 코드에 이미 포함, 수동파일 불필요 |
+| C-자동. GH Actions cron | GitHub 러너 | ✅ 매일 자동 커밋 | Vercel 없이도 데이터 git 에 버전관리 |
+| C-수동. 직접 실행 | 본인 PC(VBA/Node) | ❌ 수동 | 위 자동이 안 될 때 백업 |
+
+> 결국 **"자동 최신화"는 HTML/JSON 파싱 방식이 아니라 '안 막힌 곳에서 주기 실행'**
+> 으로 달성된다. 권장: Vercel 로 배포(B) → ISR 자동 크롤. 보조로 GH Actions cron 으로
+> 스냅샷도 항상 최신 유지(데이터가 git 에 남아 추적·롤백 가능).
