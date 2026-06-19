@@ -102,19 +102,44 @@ function windowOf(series: TrendPoint[], from: Date, to: Date): TrendPoint[] {
   });
 }
 
+// 예측 근거(신뢰도 표기용).
+//  'yoy'      = 2년치 실데이터로 재작년→작년 모멘텀까지 반영(가장 신뢰도 높음)
+//  'lastyear' = 작년 1년치만 있어 작년 패턴을 그대로 투영
+//  'profile'  = 일자 피크가 없어 시즌 프로파일(피크월 1일)로 추정
+export type ForecastBasis = 'yoy' | 'lastyear' | 'profile';
+
 export interface PeakForecast {
   peakMonthIndex: number; // 0~11
   peakMonthLabel: string;
   peakRatio: number; // 시즌 프로파일상 피크월 평균 지수
-  peakDateLabel: string; // 예상 피크 '월·일' (예: '9월 14일') — 일별 데이터 기반
+  peakDateLabel: string; // 예상 피크 '월·일' (예: '9월 14일') — 모멘텀 반영 후
   forecastPeak: string; // 예상 피크 일자 'YYYY-MM-DD'
   dday: number; // 예상 피크 일자까지 남은 일수 (0 = 오늘이 피크, 음수 없음)
   isInPeak: boolean; // 이번 달이 시즌 피크월인지
   lastYearPeak: PeakInfo | null; // 최근 12개월 윈도우 최고점(일자)
   prevYearPeak: PeakInfo | null; // 그 이전 12개월 윈도우 최고점(일자)
+  // ── 실데이터 기반 예측(재작년 대비 작년 변화 → 올해 투영) ──
+  basis: ForecastBasis; // 예측 근거/신뢰도
+  yoyGrowthPct: number | null; // 재작년 대비 작년 피크 변화율(%) [관측값]
+  projectedPeakRatio: number | null; // 올해 예상 피크 지수 (모멘텀 투영)
+  peakShiftDays: number | null; // 피크 시점 변화(작년-재작년, 일). 양수=늦어짐
 }
 
+// 'YYYY-MM-DD'/'YYYY-MM' → 1년 안에서의 일 순서(0~365). 연도 무시, 시점 비교용.
+function dayOfYearOf(period: string): number {
+  const m = Number(period.slice(5, 7)) - 1;
+  const d = period.length >= 10 ? Number(period.slice(8, 10)) : 1;
+  return Math.round((new Date(2001, m, d).getTime() - new Date(2001, 0, 1).getTime()) / DAY);
+}
+
+// 피크 시점 이동량은 과도한 튐을 막기 위해 ±21일로 제한.
+const MAX_SHIFT_DAYS = 21;
+// 재작년 피크가 너무 작으면(노이즈) 모멘텀 비율이 불안정 → 최소 기준치.
+const MIN_PREV_PEAK = 5;
+
 // 예상 피크월·피크지수·피크 일자·D-day·작년/재작년 피크 비교.
+// 핵심: '작년 그대로'가 아니라 재작년→작년의 실제 변화(지수 성장·피크 시점 이동)를
+//       올해로 한 번 더 투영해 예상치를 만든다.
 export function computePeakForecast(series: TrendPoint[], now: Date = new Date()): PeakForecast {
   const profile = seasonalProfile(series);
   let peakMonthIndex = 0;
@@ -129,7 +154,28 @@ export function computePeakForecast(series: TrendPoint[], now: Date = new Date()
   const lastYearPeak = peakInfoOf(windowOf(series, oneYearAgo, new Date(today0.getTime() + DAY)));
   const prevYearPeak = peakInfoOf(windowOf(series, twoYearsAgo, oneYearAgo));
 
-  // 예상 피크 일자: 가장 최근 연도의 피크 '월·일'을 올해/내년으로 투영.
+  // 1) 예측 근거 판정
+  const hasBoth = Boolean(lastYearPeak && prevYearPeak);
+  const basis: ForecastBasis = hasBoth ? 'yoy' : lastYearPeak ? 'lastyear' : 'profile';
+
+  // 2) 지수 모멘텀: 재작년 대비 작년 피크 변화율 → 올해 예상 피크 지수.
+  let yoyGrowthPct: number | null = null;
+  let projectedPeakRatio: number | null = lastYearPeak ? lastYearPeak.ratio : null;
+  if (hasBoth && prevYearPeak!.ratio >= MIN_PREV_PEAK) {
+    const growth = lastYearPeak!.ratio / prevYearPeak!.ratio;
+    yoyGrowthPct = Math.round((growth - 1) * 100);
+    // 같은 비율로 올해를 한 번 더 투영(역대 최고 경신 가능 → 상한 200).
+    projectedPeakRatio = Math.round(clamp(lastYearPeak!.ratio * growth, 0, 200));
+  }
+
+  // 3) 시점 모멘텀: 작년 피크가 재작년보다 얼마나 빨라/늦어졌는지 → 올해 반영.
+  let peakShiftDays: number | null = null;
+  if (hasBoth) {
+    const raw = dayOfYearOf(lastYearPeak!.period) - dayOfYearOf(prevYearPeak!.period);
+    peakShiftDays = Math.max(-MAX_SHIFT_DAYS, Math.min(MAX_SHIFT_DAYS, raw));
+  }
+
+  // 4) 예상 피크 일자: 작년 피크 '월·일'을 기준으로 시점 모멘텀만큼 이동해 올해/내년에 투영.
   const basePeak = lastYearPeak ?? prevYearPeak;
   let peakMonth = peakMonthIndex;
   let peakDay = 1;
@@ -137,9 +183,10 @@ export function computePeakForecast(series: TrendPoint[], now: Date = new Date()
     peakMonth = monthIndexOf(basePeak.period);
     peakDay = basePeak.period.length >= 10 ? Number(basePeak.period.slice(8, 10)) : 1;
   }
-  let forecast = new Date(now.getFullYear(), peakMonth, peakDay);
+  // 날짜 오버플로는 JS Date가 정규화(예: 9월 35일 → 10월 5일).
+  let forecast = new Date(now.getFullYear(), peakMonth, peakDay + (peakShiftDays ?? 0));
   if (startOfDay(forecast) < today0) {
-    forecast = new Date(now.getFullYear() + 1, peakMonth, peakDay);
+    forecast = new Date(now.getFullYear() + 1, peakMonth, peakDay + (peakShiftDays ?? 0));
   }
   const dday = Math.max(0, Math.round((startOfDay(forecast).getTime() - today0.getTime()) / DAY));
   const isInPeak = now.getMonth() === peakMonthIndex;
@@ -152,12 +199,16 @@ export function computePeakForecast(series: TrendPoint[], now: Date = new Date()
     peakMonthIndex,
     peakMonthLabel: MONTH_LABELS[peakMonthIndex],
     peakRatio,
-    peakDateLabel: `${MONTH_LABELS[peakMonth]} ${peakDay}일`,
+    peakDateLabel: `${MONTH_LABELS[forecast.getMonth()]} ${forecast.getDate()}일`,
     forecastPeak: `${fy}-${fm}-${fd}`,
     dday,
     isInPeak,
     lastYearPeak,
     prevYearPeak,
+    basis,
+    yoyGrowthPct,
+    projectedPeakRatio,
+    peakShiftDays,
   };
 }
 

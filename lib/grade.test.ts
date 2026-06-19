@@ -69,6 +69,63 @@ test('computePeakForecast: 7월 피크 + 예상 피크 일자/D-day (일별)', (
   assert.ok(fc.prevYearPeak && fc.prevYearPeak.monthLabel === '7월');
 });
 
+// 저베이스(10) 위에 두 해의 피크일만 지정해 모멘텀(지수 성장·시점 이동)을 검증.
+function dailyWithPeaks(
+  prevPeak: { date: string; ratio: number },
+  lastPeak: { date: string; ratio: number },
+): TrendPoint[] {
+  const out: TrendPoint[] = [];
+  const start = new Date(2024, 5, 19); // 2024-06-19
+  const end = new Date(2026, 5, 19); // 2026-06-19
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    let ratio = 10;
+    if (period === prevPeak.date) ratio = prevPeak.ratio;
+    if (period === lastPeak.date) ratio = lastPeak.ratio;
+    out.push({ period, ratio });
+  }
+  return out;
+}
+
+test('computePeakForecast: 재작년→작년 모멘텀으로 올해 지수·시점 투영', () => {
+  const now = new Date(2026, 5, 19); // 2026-06-19
+  const series = dailyWithPeaks(
+    { date: '2024-09-01', ratio: 60 }, // 재작년 피크
+    { date: '2025-09-11', ratio: 90 }, // 작년 피크(+50%, 10일 늦어짐)
+  );
+  const fc = computePeakForecast(series, now);
+  assert.equal(fc.basis, 'yoy');
+  assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100
+  assert.equal(fc.projectedPeakRatio, 135); // 90 * 1.5
+  assert.equal(fc.peakShiftDays, 10); // 9/11 - 9/1
+  // 작년 피크(9/11)에 시점 모멘텀(+10일) 반영 → 올해 9/21 예상
+  assert.equal(fc.forecastPeak, '2026-09-21');
+  assert.equal(fc.peakDateLabel, '9월 21일');
+});
+
+test('computePeakForecast: 시점 이동은 ±21일로 제한', () => {
+  const now = new Date(2026, 5, 19);
+  const series = dailyWithPeaks(
+    { date: '2024-09-01', ratio: 50 },
+    { date: '2025-11-01', ratio: 70 }, // 61일 늦어짐 → 21일로 클램프
+  );
+  const fc = computePeakForecast(series, now);
+  assert.equal(fc.peakShiftDays, 21);
+});
+
+test('computePeakForecast: 1년치만 있으면 basis=lastyear, 모멘텀 없음', () => {
+  const now = new Date(2026, 5, 19);
+  const series = dailyWithPeaks(
+    { date: '2024-01-01', ratio: 10 }, // 재작년 윈도우 밖(피크 없음 처리용 더미)
+    { date: '2025-09-11', ratio: 90 },
+  ).filter((p) => p.period >= '2025-06-19'); // 작년치만 남김
+  const fc = computePeakForecast(series, now);
+  assert.equal(fc.basis, 'lastyear');
+  assert.equal(fc.yoyGrowthPct, null);
+  assert.equal(fc.peakShiftDays, null);
+  assert.equal(fc.projectedPeakRatio, 90);
+});
+
 test('computePeakForecast: 피크 당일이면 D-day 0', () => {
   const now = new Date(2026, 6, 15); // 7월 15일
   const fc = computePeakForecast(dailySummerSeries(), now);
