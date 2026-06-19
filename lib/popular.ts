@@ -3,11 +3,12 @@
 //  · ranks  : 과일 카테고리 인기검색어 TOP (메인 화면 노출용)
 //  · golden : 상위 인기검색어에서 뽑은 황금키워드(롱테일·연관 품종)
 //
-// 데이터 소스 우선순위(3단):
-//   1) datalab  — 라이브 크롤(egress 허용 환경: 프로덕션 Vercel 등)
-//   2) snapshot — data/popular.json (egress 막힌 곳에서 사용자가 PC에서 뽑아 넣은 실데이터)
+// 데이터 소스 우선순위(3단) — '스냅샷 우선'(2026-06-19 결정, C-자동 메인):
+//   1) snapshot — data/popular.json (GitHub Actions cron 이 매일 갱신하는 실데이터)
+//   2) datalab  — 라이브 크롤(스냅샷이 아직 없을 때만 — 첫 배포 부트스트랩 등)
 //   3) sample   — 통념 샘플(최후 폴백)
-// 어떤 환경(egress 차단 샌드박스 포함)에서도 화면은 항상 동작한다.
+// 네이버를 긁는 건 cron 한 곳뿐 → 사용자 요청은 네이버를 긁지 않고 로컬 JSON 만 서빙
+// (차단 위험↓·페이지 빠름). 어떤 환경(egress 차단 샌드박스 포함)에서도 항상 동작.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -176,19 +177,21 @@ function buildGolden(
   return golden;
 }
 
-// 인기검색어 TOP + 황금키워드. topN=노출 순위 수(데이터랩 상한 500까지 크롤).
-// 소스: 라이브 크롤 → 스냅샷(data/popular.json) → 샘플.
+// 인기검색어 TOP + 황금키워드. topN=노출 순위 수(데이터랩 상한 500까지).
+// 소스: 스냅샷(data/popular.json, cron 갱신) → 라이브 크롤 → 샘플.
 export async function getPopularInsights(topN = 10): Promise<PopularInsights> {
-  // 1) 라이브 크롤(egress 허용 환경). 최소 20위 확보(황금키워드 추출용).
-  const crawled = await fetchCategoryKeywordRank(undefined, Math.max(topN, 20));
-  if (crawled) {
-    return { source: 'datalab', asOf: null, ranks: crawled.slice(0, topN), golden: buildGolden(crawled, null) };
-  }
-
-  // 2) 스냅샷(사용자가 PC에서 뽑아 넣은 실데이터).
+  // 1) 스냅샷 — 메인 소스. GitHub Actions cron 이 매일 갱신. 사용자 요청은 여기서 끝
+  //    (네이버를 긁지 않음 → 빠르고 안전).
   const snap = loadSnapshot();
   if (snap) {
     return { source: 'snapshot', asOf: snap.asOf, ranks: snap.ranks.slice(0, topN), golden: buildGolden(snap.ranks, snap.related) };
+  }
+
+  // 2) 라이브 크롤 — 스냅샷이 아직 없을 때만(첫 배포 부트스트랩 등). egress 허용 환경에서만 성공.
+  //    최소 20위 확보(황금키워드 추출용).
+  const crawled = await fetchCategoryKeywordRank(undefined, Math.max(topN, 20));
+  if (crawled) {
+    return { source: 'datalab', asOf: null, ranks: crawled.slice(0, topN), golden: buildGolden(crawled, null) };
   }
 
   // 3) 샘플(최후 폴백).
