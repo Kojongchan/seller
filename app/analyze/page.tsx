@@ -4,10 +4,11 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,8 +18,7 @@ import { coupangSearchUrl, representativeKeyword, suggestSubcategories } from '@
 import type { Grade, PeakForecast, YoyTrend } from '@/lib/grade';
 
 interface SeriesPoint {
-  period: string;
-  label: string;
+  period: string; // 'YYYY-MM-DD'(일별) 또는 'YYYY-MM'(월별)
   ratio: number;
   monthIndex: number;
 }
@@ -28,6 +28,7 @@ interface TrendResponse {
   name: string;
   source: 'naver' | 'sample' | 'none';
   message?: string;
+  granularity?: 'daily' | 'monthly';
   series: SeriesPoint[];
   peakMonths: string[];
   summary: {
@@ -161,16 +162,16 @@ function Analysis({ data }: { data: TrendResponse }) {
 
       {/* 2. 핵심 4지표 카드 */}
       <section className="metric-grid">
-        <Metric label="현재 검색지수" value={`${summary.currentIndex}`} sub="기간 내 상대값(0~100)" />
+        <Metric label="현재 검색지수" value={`${summary.currentIndex}`} sub="최근 월 평균(0~100)" />
         <Metric
-          label="예상 피크월"
-          value={forecast ? forecast.peakMonthLabel : '—'}
-          sub={forecast ? `피크지수 ${forecast.peakRatio}` : ''}
+          label="예상 피크"
+          value={forecast ? forecast.peakDateLabel : '—'}
+          sub={forecast ? `피크월 평균지수 ${forecast.peakRatio}` : ''}
         />
         <Metric
           label="피크까지"
-          value={forecast ? (forecast.isInPeak ? '지금 성수기' : `D-${forecast.dday}`) : '—'}
-          sub={forecast && !forecast.isInPeak ? `${forecast.peakMonthLabel} 1일까지` : ''}
+          value={forecast ? (forecast.dday === 0 ? '오늘/지금' : `D-${forecast.dday}`) : '—'}
+          sub={forecast ? `${forecast.forecastPeak} 예상` : ''}
         />
         <Metric
           label="작년 대비 추세"
@@ -179,15 +180,15 @@ function Analysis({ data }: { data: TrendResponse }) {
         />
       </section>
 
-      {/* 3. 2년 추이 차트 */}
+      {/* 3. 2년 추이 차트 (일별 선) */}
       <section>
-        <h2 className="section-title">📈 2년 검색 추이</h2>
+        <h2 className="section-title">📈 2년 검색 추이 {data.granularity === 'daily' ? '(일별)' : '(월별·샘플)'}</h2>
         <div className="card">
           <TrendChart data={data} />
           <p className="hint">
-            <span className="dot red" /> 성수기 &nbsp;
-            <span className="dot blue-out" /> 이번 달 &nbsp;
-            <span className="dot amber-out" /> 작년·재작년 동월 &nbsp;· 좌(과거)→우(최근), 상대지수(최댓값=100)
+            <span className="dot red" /> 성수기 구간 &nbsp;
+            <span className="dot blue-line" /> 작년 피크일 &nbsp;
+            <span className="dot amber-line" /> 재작년 피크일 &nbsp;· 좌(과거)→우(최근), 상대지수(최댓값=100)
           </p>
         </div>
       </section>
@@ -198,20 +199,20 @@ function Analysis({ data }: { data: TrendResponse }) {
           <h2 className="section-title">🗓️ 시즌 피크 예측</h2>
           <div className="card peak-card">
             <div className="peak-line">
-              <b>예상 피크월</b>
-              <span>{forecast.peakMonthLabel} (피크지수 {forecast.peakRatio})</span>
+              <b>예상 피크일</b>
+              <span>{forecast.peakDateLabel} ({forecast.forecastPeak}) · D-{forecast.dday}</span>
             </div>
             <div className="peak-line">
-              <b>피크까지</b>
-              <span>{forecast.isInPeak ? '이번 달이 성수기입니다' : `D-${forecast.dday}`}</span>
+              <b>피크월 평균지수</b>
+              <span>{forecast.peakMonthLabel} · {forecast.peakRatio}</span>
             </div>
             <div className="peak-line">
               <b>작년 피크</b>
-              <span>{forecast.lastYearPeak ? `${forecast.lastYearPeak.monthLabel} (지수 ${forecast.lastYearPeak.ratio})` : '데이터 부족'}</span>
+              <span>{forecast.lastYearPeak ? `${forecast.lastYearPeak.dateLabel} (지수 ${forecast.lastYearPeak.ratio})` : '데이터 부족'}</span>
             </div>
             <div className="peak-line">
               <b>재작년 피크</b>
-              <span>{forecast.prevYearPeak ? `${forecast.prevYearPeak.monthLabel} (지수 ${forecast.prevYearPeak.ratio})` : '데이터 부족'}</span>
+              <span>{forecast.prevYearPeak ? `${forecast.prevYearPeak.dateLabel} (지수 ${forecast.prevYearPeak.ratio})` : '데이터 부족'}</span>
             </div>
           </div>
         </section>
@@ -273,41 +274,69 @@ function yoyArrow(yoy: YoyTrend): string {
   return '→ 보합';
 }
 
+// 성수기(피크 달력월) 연속 구간을 차트 ReferenceArea 범위로 변환.
+function seasonSpans(series: SeriesPoint[], peakSet: Set<string>): { x1: string; x2: string }[] {
+  const spans: { x1: string; x2: string }[] = [];
+  let start: string | null = null;
+  let prev: string | null = null;
+  for (const p of series) {
+    const inPeak = peakSet.has(`${p.monthIndex + 1}월`);
+    if (inPeak) {
+      if (start === null) start = p.period;
+      prev = p.period;
+    } else if (start !== null) {
+      spans.push({ x1: start, x2: prev! });
+      start = null;
+    }
+  }
+  if (start !== null) spans.push({ x1: start, x2: prev! });
+  return spans;
+}
+
+function monthTick(period: string): string {
+  const yy = period.slice(2, 4);
+  const m = Number(period.slice(5, 7));
+  return `${yy}.${m}`;
+}
+
 function TrendChart({ data }: { data: TrendResponse }) {
   const peakSet = useMemo(() => new Set(data.peakMonths), [data.peakMonths]);
-  const curMonthIndex = data.summary.currentPeriod
-    ? Number(data.summary.currentPeriod.slice(5, 7)) - 1
-    : -1;
-  const curPeriod = data.summary.currentPeriod;
+  const spans = useMemo(() => seasonSpans(data.series, peakSet), [data.series, peakSet]);
+  const fc = data.forecast;
 
   return (
     <div className="chart">
       <ResponsiveContainer>
-        <BarChart data={data.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+        <LineChart data={data.series} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f3" />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={1} />
+          <XAxis dataKey="period" tickFormatter={monthTick} minTickGap={36} tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
           <Tooltip
             formatter={(v: number) => [`${v}`, '검색지수']}
-            labelFormatter={(l) => `20${l}`}
-            cursor={{ fill: 'rgba(37,99,235,0.06)' }}
+            labelFormatter={(p) => `${p}`}
+            cursor={{ stroke: 'rgba(37,99,235,0.3)' }}
           />
-          <Bar dataKey="ratio" radius={[3, 3, 0, 0]}>
-            {data.series.map((d) => {
-              const isCurrent = d.period === curPeriod;
-              const isSameMonthPrior = !isCurrent && d.monthIndex === curMonthIndex;
-              const stroke = isCurrent ? '#1d4ed8' : isSameMonthPrior ? '#f59e0b' : 'none';
-              return (
-                <Cell
-                  key={d.period}
-                  fill={peakSet.has(`${d.monthIndex + 1}월`) ? '#dc2626' : '#93c5fd'}
-                  stroke={stroke}
-                  strokeWidth={stroke === 'none' ? 0 : 2}
-                />
-              );
-            })}
-          </Bar>
-        </BarChart>
+          {spans.map((s) => (
+            <ReferenceArea key={s.x1} x1={s.x1} x2={s.x2} fill="#fecaca" fillOpacity={0.45} ifOverflow="extendDomain" />
+          ))}
+          {fc?.lastYearPeak && (
+            <ReferenceLine
+              x={fc.lastYearPeak.period}
+              stroke="#1d4ed8"
+              strokeDasharray="4 2"
+              label={{ value: '작년 피크', fontSize: 10, fill: '#1d4ed8', position: 'top' }}
+            />
+          )}
+          {fc?.prevYearPeak && (
+            <ReferenceLine
+              x={fc.prevYearPeak.period}
+              stroke="#f59e0b"
+              strokeDasharray="4 2"
+              label={{ value: '재작년', fontSize: 10, fill: '#f59e0b', position: 'top' }}
+            />
+          )}
+          <Line type="monotone" dataKey="ratio" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );
@@ -324,7 +353,6 @@ function SubcategoryCompare({ keyword }: { keyword: string }) {
   const autoKeywords = useMemo(() => {
     const subs = suggestSubcategories(keyword);
     const base = rep ?? keyword;
-    // 대표키워드 + 입력 키워드 + 자동 세분류 (중복 제거)
     return Array.from(new Set([base, keyword, ...subs]));
   }, [keyword, rep]);
 

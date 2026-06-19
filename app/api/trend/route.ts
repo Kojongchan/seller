@@ -16,7 +16,8 @@ import {
 //
 // 응답:
 // { query, name, source: 'naver'|'sample'|'none', message?,
-//   series: [{ period, label, ratio, monthIndex }],
+//   granularity: 'daily'|'monthly',
+//   series: [{ period, ratio, monthIndex }],   // naver=일별, sample=월별
 //   peakMonths: string[], summary, forecast, grade, debug? }
 
 const MONTH_LABELS = [
@@ -24,22 +25,18 @@ const MONTH_LABELS = [
   '7월', '8월', '9월', '10월', '11월', '12월',
 ];
 
-// 'YYYY-MM' 라벨/인덱스를 단일 시리즈 포인트로 가공.
+// 차트/분석 공용 시리즈 포인트. period 는 일별('YYYY-MM-DD') 또는 월별('YYYY-MM').
 interface SeriesPoint {
-  period: string; // 'YYYY-MM'
-  label: string; // "24.6"
+  period: string;
   ratio: number; // 0~100
   monthIndex: number; // 0~11
 }
 
 function toSeriesPoint(period: string, ratio: number): SeriesPoint {
-  const year = Number(period.slice(0, 4));
-  const monthIndex = Number(period.slice(5, 7)) - 1;
   return {
-    period: period.slice(0, 7),
-    label: `${String(year).slice(2)}.${monthIndex + 1}`,
+    period,
     ratio: Math.round(ratio),
-    monthIndex,
+    monthIndex: Number(period.slice(5, 7)) - 1,
   };
 }
 
@@ -72,17 +69,19 @@ function peakMonthLabels(series: SeriesPoint[]): string[] {
     .filter((v): v is string => v !== null);
 }
 
-function analysisPayload(series: SeriesPoint[], now: Date) {
+function analysisPayload(series: SeriesPoint[], now: Date, granularity: 'daily' | 'monthly') {
   const points = series as TrendPoint[];
   const forecast = computePeakForecast(points, now);
   const yoy = computeYoyTrend(points);
   const grade = gradeFromTrend(points, now);
   const current = series.length ? series[series.length - 1] : null;
   return {
+    granularity,
     series,
     peakMonths: peakMonthLabels(series),
     summary: {
-      currentIndex: current ? current.ratio : 0,
+      // 일별은 노이즈가 커서 '현재 검색지수'는 최신 월 평균(yoy.current)을 사용.
+      currentIndex: yoy.current,
       currentPeriod: current ? current.period : null,
       yoy,
     },
@@ -112,12 +111,12 @@ export async function GET(req: Request) {
     try {
       const trend = await fetchSearchTrend(keyword);
       if (trend && trend.length > 0) {
-        const series = trend.map((t) => toSeriesPoint(t.month, t.ratio));
+        const series = trend.map((t) => toSeriesPoint(t.period, t.ratio));
         return NextResponse.json({
           query: keyword,
           name: keyword,
           source: 'naver',
-          ...analysisPayload(series, now),
+          ...analysisPayload(series, now, 'daily'),
           ...(debug ? { debug: { hasKeys: true, apiNote: 'ok', points: series.length } } : {}),
         });
       }
@@ -147,7 +146,7 @@ function fallback(
       query: keyword,
       name: fruit.name,
       source: 'sample',
-      ...analysisPayload(series, now),
+      ...analysisPayload(series, now, 'monthly'),
       ...(debug ? { debug: { hasKeys: hasNaverKeys(), apiNote, keyInfo: keyDiagnostics(), sampleFruit: fruit.id } } : {}),
     });
   }
@@ -158,6 +157,7 @@ function fallback(
     name: keyword,
     source: 'none',
     message: '네이버 검색어트렌드 키가 없어 실데이터를 불러올 수 없습니다. 샘플은 16개 대표 과일에만 제공됩니다. 키 연결 시 임의 키워드도 분석됩니다.',
+    granularity: 'monthly',
     series: [],
     peakMonths: [],
     summary: { currentIndex: 0, currentPeriod: null, yoy: { direction: 'flat', current: 0, lastYear: null, deltaPct: null } },
