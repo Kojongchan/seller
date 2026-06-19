@@ -92,6 +92,19 @@ section {
   cursor: default;
 }
 
+.prep-card {
+  background: #f3fbf5;
+  border-color: #cdefd6;
+}
+.prep-card:hover {
+  border-color: #16a34a;
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.12);
+}
+.prep-card .rec-score {
+  color: #15803d;
+  font-weight: 700;
+}
+
 .rec-card:hover {
   transform: translateY(-2px);
   border-color: #2563eb;

@@ -320,6 +320,7 @@ const WATCH_BELOW = 15; // 이보다 낮으면 아직 시즌 전(관망)
 const PRIME_MAX = 45; // 15~45 = 초입 상승(진입 적기), 그 이상은 상승 양호(초입 지남)
 const SEASON_PEAK_MIN = 50; // 이 정도 피크가 있었어야 '시즌'으로 인정
 const SEASON_OVER_RATIO = 0.85; // 앞으로의 최고점이 지난 피크의 85% 이하면 시즌 정점 지남
+const ENTRY_HORIZON = 100; // 예상 피크가 이보다 멀면 아직 '관망'(진입 적기 아님)
 
 export type EntryStatus = 'prime' | 'rising' | 'watch' | 'soon' | 'peak' | 'declining';
 
@@ -414,6 +415,7 @@ export function computeEntrySignal(
   if (seasonOver) status = 'declining';
   else if (forecast.isInPeak) status = 'peak';
   else if (daysToPeak < ENTRY_LEAD_DAYS) status = 'soon';
+  else if (daysToPeak > ENTRY_HORIZON) status = 'watch'; // 피크가 아직 멀어 관망
   else if (current < WATCH_BELOW) status = 'watch';
   else if (current <= PRIME_MAX) status = 'prime';
   else status = 'rising';
