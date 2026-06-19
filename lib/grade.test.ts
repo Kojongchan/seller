@@ -62,9 +62,9 @@ test('computePeakForecast: 7월 피크 + 예상 피크 일자/D-day (일별)', (
   assert.equal(fc.peakMonthIndex, 6);
   assert.equal(fc.peakMonthLabel, '7월');
   assert.equal(fc.isInPeak, false);
-  // 가장 최근 해 피크일(2025-07-15)을 올해로 투영 → 2026-07-15
-  assert.equal(fc.forecastPeak, '2026-07-15');
-  assert.equal(fc.peakDateLabel, '7월 15일');
+  // 예상 피크는 7월 중(평활화로 피크 주변이 평탄 → 정확 일자는 ±며칠 무의미).
+  assert.ok(fc.forecastPeak.startsWith('2026-07'));
+  assert.ok(fc.peakDateLabel.startsWith('7월'));
   assert.ok(fc.dday > 0 && fc.dday < 60);
   assert.ok(fc.lastYearPeak && fc.lastYearPeak.period === '2025-07-15');
   assert.ok(fc.prevYearPeak && fc.prevYearPeak.monthLabel === '7월');
@@ -99,10 +99,11 @@ test('computePeakForecast: 형태×수준 예측 + 관측 모멘텀 보존', () 
   // 관측 모멘텀(재작년→작년)은 참고 정보로 보존.
   assert.equal(fc.yoyGrowthPct, 50); // (90/60 - 1)*100
   assert.equal(fc.peakShiftDays, 10); // 9/11 - 9/1
-  // 예상 피크 = 예측 곡선(형태×수준) 최고점. 9/11 형태 = 0.6*90 + 0.4*10 = 58, 수준배율 1.
+  // 예상 피크 = 예측 곡선(형태×수준, 평활화) 최고점. 9/11 형태(삼각평활):
+  // 작년 0.6*30 + 재작년 0.4*10 = 22, 수준배율 1.
   assert.equal(fc.forecastPeak, '2026-09-11');
   assert.equal(fc.peakDateLabel, '9월 11일');
-  assert.equal(fc.projectedPeakRatio, 58);
+  assert.equal(fc.projectedPeakRatio, 22);
 });
 
 test('computePeakForecast: 시점 이동은 ±21일로 제한', () => {
@@ -125,7 +126,8 @@ test('computePeakForecast: 1년치만 있으면 basis=lastyear, 모멘텀 없음
   assert.equal(fc.basis, 'lastyear');
   assert.equal(fc.yoyGrowthPct, null);
   assert.equal(fc.peakShiftDays, null);
-  assert.equal(fc.projectedPeakRatio, 90);
+  // 작년 단독 형태(삼각평활): 9/11 단일 90 → 30.
+  assert.equal(fc.projectedPeakRatio, 30);
 });
 
 test('computePeakForecast: 오늘이 피크면 D-day 0 (오늘 실측이 앞으로의 최고점)', () => {
@@ -176,10 +178,11 @@ test('buildForecastSeries: 오늘 이후~연말, 0~100, 형태×수준 피크', 
   assert.equal(fc[0].period, '2026-06-20'); // 오늘 다음날부터
   assert.equal(fc[fc.length - 1].period, '2026-12-31'); // 연말까지
   assert.ok(fc.every((p) => p.ratio >= 0 && p.ratio <= 100)); // 0~100
-  // 8/15 형태 = 0.6*작년(80) + 0.4*재작년(40) = 64. 올해 수준배율 1 → 64.
+  // 8/15 형태(삼각평활): 작년 0.6*27.5 + 재작년 0.4*17.5 = 23.5 → 24. 피크 날짜 유지.
   const peak = fc.reduce((m, p) => (p.ratio > m.ratio ? p : m));
   assert.equal(peak.period.slice(5, 7), '08');
-  assert.equal(peak.ratio, 64);
+  assert.equal(peak.period, '2026-08-15');
+  assert.equal(peak.ratio, 24);
 });
 
 test('buildForecastSeries: 데이터 없으면 빈 배열', () => {
