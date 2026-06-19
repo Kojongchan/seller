@@ -218,11 +218,39 @@ const LEVEL_LO = 0.4;
 const LEVEL_HI = 2.5;
 const LEVEL_WINDOW_DAILY = 30; // 최근 30일
 const LEVEL_WINDOW_MONTHLY = 2; // 최근 2개월
+// 형태 평활화: 삼각 가중 7일 이동평균(중심일 가중 최대 → 진짜 피크 날짜는 유지하고
+// 하루짜리 스파이크만 깎음). 일별에만 적용.
+const SMOOTH_HALF = 3;
+
+// 한 해의 일별 포인트 → (MM-DD)→평활값 맵. 삼각 가중 이동평균.
+function smoothedDailyMap(yearPts: TrendPoint[]): Map<string, number> {
+  const sorted = [...yearPts].sort((a, b) => a.period.localeCompare(b.period));
+  const m = new Map<string, number>();
+  for (let i = 0; i < sorted.length; i++) {
+    let sw = 0;
+    let wsum = 0;
+    for (let off = -SMOOTH_HALF; off <= SMOOTH_HALF; off++) {
+      const j = i + off;
+      if (j < 0 || j >= sorted.length) continue;
+      const w = SMOOTH_HALF + 1 - Math.abs(off); // 4,3,2,1 삼각 가중
+      sw += sorted[j].ratio * w;
+      wsum += w;
+    }
+    m.set(sorted[i].period.slice(5, 10), wsum ? sw / wsum : sorted[i].ratio);
+  }
+  return m;
+}
+
+function rawMap(yearPts: TrendPoint[], keyOf: (p: string) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const p of yearPts) m.set(keyOf(p.period), p.ratio);
+  return m;
+}
 
 // 올해 '오늘 이후 ~ 12월 말'의 예측 일별/월별 시리즈.
 // 방법(확정, '형태×수준 분리'):
 //   ① 형태(shape) = 과거 2년의 같은 날짜 값을 가중평균(작년 0.6 + 재작년 0.4)한
-//      '전형적 시즌 패턴'. 단일 피크 이상치에 휘둘리지 않음(평활화는 적용 안 함).
+//      '전형적 시즌 패턴'. 일별은 삼각 7일 이동평균으로 평활화해 하루짜리 스파이크 제거.
 //   ② 수준(level) = 올해 현재까지 실측이 같은 시기 형태 대비 몇 배인지 → 배율.
 //   ③ 예측 = clamp(형태 × 배율, 0, 100). 오늘 실측 수준과 자연스럽게 이어짐.
 export function buildForecastSeries(series: TrendPoint[], now: Date = new Date()): ForecastPoint[] {
@@ -231,14 +259,11 @@ export function buildForecastSeries(series: TrendPoint[], now: Date = new Date()
   const thisYear = now.getFullYear();
   const keyOf = (period: string) => (daily ? period.slice(5, 10) : period.slice(5, 7));
 
-  // 연도별 (MM-DD / MM) → 지수 맵.
-  const lastMap = new Map<string, number>();
-  const prevMap = new Map<string, number>();
-  for (const p of series) {
-    const y = yearOf(p.period);
-    if (y === thisYear - 1) lastMap.set(keyOf(p.period), p.ratio);
-    else if (y === thisYear - 2) prevMap.set(keyOf(p.period), p.ratio);
-  }
+  // 연도별 (MM-DD / MM) → 지수 맵. 일별은 평활화, 월별은 원값.
+  const lastPts = series.filter((p) => yearOf(p.period) === thisYear - 1);
+  const prevPts = series.filter((p) => yearOf(p.period) === thisYear - 2);
+  const lastMap = daily ? smoothedDailyMap(lastPts) : rawMap(lastPts, keyOf);
+  const prevMap = daily ? smoothedDailyMap(prevPts) : rawMap(prevPts, keyOf);
   // 형태: 작년·재작년 가중평균(둘 중 하나만 있으면 그것).
   const shapeAt = (k: string): number | null => {
     const l = lastMap.get(k);
