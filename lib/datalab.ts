@@ -41,25 +41,26 @@ function recentRange(): { startDate: string; endDate: string } {
   return { startDate: fmt(start), endDate: fmt(end) };
 }
 
-// 카테고리(cid) 인기검색어 TOP 을 크롤한다. 실패/차단/빈응답이면 null.
-// count: 가져올 순위 수(데이터랩은 페이지당 최대 20). page=1 고정(메인 TOP 용).
-export async function fetchCategoryKeywordRank(
-  cid: string = FRUIT_CATEGORY_CID,
-  count = 20,
-): Promise<RankedKeyword[] | null> {
-  if (!isDatalabCrawlEnabled()) return null;
+// 데이터랩 쇼핑인사이트는 페이지당 최대 20위 → TOP500은 25페이지 페이지네이션.
+const PAGE_SIZE = 20;
+export const MAX_RANK = 500;
 
-  const { startDate, endDate } = recentRange();
+// 카테고리(cid) 인기검색어 한 '페이지'를 크롤한다. 실패/차단/빈응답이면 null.
+async function fetchRankPage(
+  cid: string,
+  page: number,
+  range: { startDate: string; endDate: string },
+): Promise<RankedKeyword[] | null> {
   const params = new URLSearchParams({
     cid,
     timeUnit: 'date',
-    startDate,
-    endDate,
+    startDate: range.startDate,
+    endDate: range.endDate,
     age: '',
     gender: '',
     device: '',
-    page: '1',
-    count: String(Math.min(Math.max(count, 1), 20)),
+    page: String(page),
+    count: String(PAGE_SIZE),
   });
 
   try {
@@ -77,15 +78,56 @@ export async function fetchCategoryKeywordRank(
       next: { revalidate: 60 * 60 * 6 },
     });
     if (!res.ok) {
-      console.error(`[datalab] rank ${res.status}`);
+      console.error(`[datalab] rank page ${page} → ${res.status}`);
       return null;
     }
-    const json: unknown = await res.json();
-    return parseRanks(json);
+    return parseRanks(await res.json());
   } catch (e) {
-    console.error('[datalab] rank fetch failed:', e instanceof Error ? e.message : String(e));
+    console.error(`[datalab] rank page ${page} failed:`, e instanceof Error ? e.message : String(e));
     return null;
   }
+}
+
+// 카테고리(cid) 인기검색어 TOP 을 크롤한다(최대 limit, 데이터랩 상한 500).
+// 페이지(20개)를 순차로 긁어 전역 순위로 재번호 매김. 첫 페이지부터 실패/차단이면
+// null(→ 샘플 폴백). 중간 페이지가 실패하거나 더 짧으면 거기까지의 부분 결과 반환.
+export async function fetchCategoryKeywordRank(
+  cid: string = FRUIT_CATEGORY_CID,
+  limit = PAGE_SIZE,
+): Promise<RankedKeyword[] | null> {
+  if (!isDatalabCrawlEnabled()) return null;
+
+  const cap = Math.min(Math.max(limit, 1), MAX_RANK);
+  const lastPage = Math.ceil(cap / PAGE_SIZE);
+  const range = recentRange();
+  const pages: RankedKeyword[][] = [];
+
+  for (let p = 1; p <= lastPage; p++) {
+    const page = await fetchRankPage(cid, p, range);
+    if (!page || page.length === 0) break; // 실패/차단/끝
+    pages.push(page);
+    if (page.length < PAGE_SIZE) break; // 마지막 페이지(데이터 소진)
+  }
+
+  const merged = flattenRanks(pages, cap);
+  return merged.length > 0 ? merged : null;
+}
+
+// 페이지별 결과를 전역 순위(1..limit)로 합친다(순수함수 — 페이지네이션 단위테스트용).
+// 데이터랩 페이지 순위는 페이지마다 1부터 다시 시작하므로 누적 위치로 재번호.
+export function flattenRanks(pages: RankedKeyword[][], limit: number): RankedKeyword[] {
+  const out: RankedKeyword[] = [];
+  const seen = new Set<string>();
+  for (const page of pages) {
+    for (const item of page) {
+      const keyword = (item.keyword ?? '').trim();
+      if (!keyword || seen.has(keyword)) continue;
+      seen.add(keyword);
+      out.push({ rank: out.length + 1, keyword });
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
 }
 
 // 데이터랩 응답 → RankedKeyword[]. 응답 형태가 흔들려도 안전하게 파싱.

@@ -84,9 +84,10 @@ const SAMPLE_RELATED: Record<string, RankedKeyword[]> = {
 const GOLDEN_PARENTS = 4; // 상위 몇 개 인기검색어에서 황금키워드를 뽑을지
 const GOLDEN_PER_PARENT = 2; // 메인 하나당 황금키워드 수
 
-// 인기검색어 TOP + 황금키워드. topN=노출 순위 수.
+// 인기검색어 TOP + 황금키워드. topN=노출 순위 수(데이터랩 상한 500까지 크롤).
 export async function getPopularInsights(topN = 10): Promise<PopularInsights> {
-  const crawled = await fetchCategoryKeywordRank();
+  // 최소 20위는 확보(황금키워드 추출용), 요청이 크면 그만큼 페이지네이션.
+  const crawled = await fetchCategoryKeywordRank(undefined, Math.max(topN, 20));
   const source: 'datalab' | 'sample' = crawled ? 'datalab' : 'sample';
   const all = crawled ?? SAMPLE_RANKS;
   const ranks = all.slice(0, topN);
